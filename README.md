@@ -84,3 +84,7 @@ CI runs all of these on every push, see `.github/workflows/ci.yml`.
 ## Licence
 
 MIT, see [LICENSE](LICENSE). Credit: VINEX.
+
+## Author
+
+Designed and built by Abdel Rahman Mohamad EL-Sayed ([AbdelRahman-Madboly](https://github.com/AbdelRahman-Madboly) on GitHub) as a VINEX product.
