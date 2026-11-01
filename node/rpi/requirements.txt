@@ -1,0 +1,10 @@
+# FarmLens node: runtime dependencies
+#
+# On the Raspberry Pi, numpy, opencv and picamera2 come from apt (install.sh)
+# and the venv uses --system-site-packages, so only these are installed by pip.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27
+pydantic>=2.5,<3
+
+# Optional, for AI_MODE=tflite. Install one TFLite runtime yourself:
+#   pip install ai-edge-litert
