@@ -1,0 +1,62 @@
+# Changelog
+
+All notable changes to this project are listed here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [0.1.0] - 2026-11-01
+
+First public prototype. Runs end to end on simulated data. No trained model,
+dataset, assembled hardware or measurement is included.
+
+### Added
+
+- Monorepo layout: `node/rpi` (Pi server), `node/firmware` (ESP32), `app`
+  (Flutter), `docs`.
+- `node/rpi/mock_sensor.py` and `SENSOR_MODE=mock|esp32`: the server generates
+  moving sensor readings itself, so the demo no longer shows frozen values.
+- `CAMERA_BACKEND=mock` with synthetic, labelled frames.
+- Optional `API_KEY` for `POST /api/sensor` and `POST /api/settings`
+  (`X-API-Key` header), supported by the app and the firmware.
+- Request validation for both write endpoints; cycle ids are validated before
+  they reach the filesystem.
+- `/api/status` reports `ai_mode`, `sensor_mode`, `simulated` and
+  `auth_required`; the web dashboard shows a banner while data is simulated.
+- Firmware `lib/sensor_model`: pure sensor logic shared with host-side Unity
+  tests; optional analog-probe build (`USE_ANALOG_PROBES`).
+- App: optional API key on the Connect screen, cycle images in Log detail.
+- Tests: 55 pytest tests (including a dummy TFLite model), 7 Unity tests,
+  42 Flutter unit and widget tests. GitHub Actions workflow running all of them
+  plus the ESP32 build.
+- `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/roadmap.md`, MIT licence.
+
+### Changed
+
+- Inference: mock mode is the default; `AI_MODE=tflite` falls back to mock with
+  a logged reason when the model file, the runtime or a `[1, N]` output is
+  missing. The score passed to fusion is now a disease score (a confident
+  healthy result no longer raises the combined score), and low-confidence
+  results are reported as `none`.
+- Mock inference only reports disease labels when its score is above 0.6.
+- `API_HOST` defaults to `127.0.0.1`; `.env.example` sets `0.0.0.0` for the Pi.
+- The ESP32 is only reported as connected when real ESP32 posts arrive.
+- Firmware reads the Pi address, node id and key from `secrets.h` instead of a
+  hard-coded LAN address; ArduinoJson pinned to v7.
+- `install.sh` installs from `requirements.txt` and creates `.env`.
+
+### Fixed
+
+- App log entries now read `cycle_id`, so opening a cycle from the Log tab works.
+- Opening an alert that is not yet in the loaded log no longer shows
+  "Cycle not found".
+- Alert cards threw a paint error (rounded border with mixed colours).
+- Mock overlay label no longer shows the disease score as the label's confidence.
+
+### Removed
+
+- Dark mode and push notification toggles in the app: neither was implemented.
+- Unused app dependencies (`mqtt_client`, `fl_chart`, `intl`,
+  `flutter_local_notifications`, `path_provider`).
+- The Node.js mock server: the Pi server in mock mode replaces it.
+- The design-reference export and planning documents from the private
+  repositories.
