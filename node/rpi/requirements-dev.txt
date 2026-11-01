@@ -1,0 +1,8 @@
+# Laptop demo and tests (no Raspberry Pi needed)
+-r requirements.txt
+numpy>=1.26
+opencv-python-headless>=4.9
+pytest>=8
+httpx>=0.27
+# Runs the TFLite test against the dummy model in tests/fixtures
+ai-edge-litert>=1.0
