@@ -1,0 +1,29 @@
+# Python (node/rpi)
+__pycache__/
+*.pyc
+.pytest_cache/
+node/rpi/venv/
+node/rpi/.venv/
+node/rpi/.env
+node/rpi/*.db
+node/rpi/*.db-shm
+node/rpi/*.db-wal
+node/rpi/*.log
+node/rpi/start.sh
+node/rpi/logs/images/*.jpg
+node/rpi/logs/images/*.png
+!node/rpi/logs/images/.gitkeep
+node/rpi/models/*.tflite
+!node/rpi/models/.gitkeep
+
+# PlatformIO (node/firmware)
+node/firmware/.pio/
+node/firmware/.vscode/.browse.c_cpp.db*
+node/firmware/.vscode/c_cpp_properties.json
+node/firmware/.vscode/launch.json
+node/firmware/.vscode/ipch
+node/firmware/include/secrets.h
+
+# Editors and OS
+.idea/
+.DS_Store
