@@ -1,0 +1,51 @@
+name: farmlens
+description: FarmLens companion app for a crop-health node prototype (simulated data).
+
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP client
+  http: ^1.2.0
+
+  # State management
+  provider: ^6.1.0
+
+  # Navigation
+  go_router: ^13.2.0
+
+  # Share sheet for log export
+  share_plus: ^7.0.0
+
+  # Persistent settings storage
+  shared_preferences: ^2.2.0
+
+  # Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
+
+# ── App Icon Configuration ─────────────────────────────────────────────────
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/farmlens_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/farmlens_icon.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
