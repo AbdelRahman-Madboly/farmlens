@@ -8,6 +8,13 @@ monorepo; see the [root README](../../README.md).
 
 The trunk and strap in the picture are for scale only.
 
+| In the field | Close up |
+|---|---|
+| ![FarmLens node in a tomato field](images/concept-field.jpg) | ![FarmLens case on a trunk](images/concept-on-trunk.jpg) |
+
+Concept images of the planned field setup, not photos of a built unit. The solar panel, sensor
+box and probes are not part of this case design.
+
 ## Status
 
 Design prototype (assembly version v004). Print files are oriented for printing.
