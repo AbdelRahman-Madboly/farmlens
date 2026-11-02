@@ -28,7 +28,8 @@
 #                       that runs over the current Wi-Fi)
 #   --country CC        Wi-Fi country code (default EG)
 #   --hostname NAME     Pi hostname (default farmlens)
-#   --camera MODE       auto (default), picamera2, opencv or mock
+#   --camera MODE       auto (default: the node finds the camera at each start),
+#                       picamera2, opencv or mock
 #   --no-pull           do not run git pull
 #   --no-apt            skip apt (faster re-runs, offline)
 # =============================================================================
@@ -185,39 +186,107 @@ rm -f "$PROJ_DIR/start.sh"   # left by the old installer, no longer used
 bold "5/8 Camera and settings"
 [ -f "$ENV_FILE" ] || { cp "$PROJ_DIR/.env.example" "$ENV_FILE"; info "Created .env"; }
 
+# Opens the camera for real and takes one test photo (logs/camera-test.jpg).
+# Prints "<backend> <message>". Never stops the setup.
+TEST_JPG="$PROJ_DIR/logs/camera-test.jpg"
 detect_camera() {
-    if "$VENV/bin/python" -c "
-from picamera2 import Picamera2
-import sys
-sys.exit(0 if Picamera2.global_camera_info() else 1)" 2>/dev/null; then
-        echo picamera2; return
-    fi
-    # /dev/video* also exists for the Pi's video codecs, so open and read.
-    if "$VENV/bin/python" -c "
-import cv2, sys
-cap = cv2.VideoCapture(0)
-ok = cap.isOpened() and cap.read()[0]
-cap.release()
-sys.exit(0 if ok else 1)" 2>/dev/null; then
-        echo opencv; return
-    fi
-    echo mock
+    timeout 40 "$VENV/bin/python" - "$TEST_JPG" 2>/dev/null <<'PYEOF' || echo "mock the camera check did not finish"
+import sys, time
+out = sys.argv[1]
+
+def report(backend, frame, how):
+    import cv2
+    bgr = frame if how == "bgr" else cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(out, bgr)
+    h, w = frame.shape[:2]
+    mean = float(frame.mean())
+    dark = "  WARNING: the photo is almost black (lens cap on, or a dark room?)" if mean < 8 else ""
+    print(f"{backend} took a {w}x{h} test photo, saved to {out}{dark}")
+    sys.exit(0)
+
+reasons = []
+try:
+    from picamera2 import Picamera2
+    if Picamera2.global_camera_info():
+        cam = Picamera2()
+        cam.configure(cam.create_video_configuration(main={"size": (640, 480), "format": "BGR888"}))
+        cam.start()
+        time.sleep(2)
+        frame = cam.capture_array()
+        cam.stop(); cam.close()
+        report("picamera2", frame, "rgb")
+    reasons.append("the Pi camera stack sees no camera")
+except ImportError:
+    reasons.append("picamera2 is not installed")
+except Exception as e:
+    reasons.append(f"the Pi camera did not start: {e}")
+
+try:
+    import cv2
+    cap = cv2.VideoCapture(0)
+    ok, frame = False, None
+    if cap.isOpened():
+        for _ in range(15):          # let auto-exposure settle, keep the last frame
+            got, f = cap.read()
+            if got:
+                ok, frame = True, f
+    cap.release()
+    if ok and frame is not None:
+        report("opencv", frame, "bgr")
+    reasons.append("no USB webcam")
+except Exception as e:
+    reasons.append(f"OpenCV error: {e}")
+
+print("mock " + "; ".join(reasons))
+PYEOF
 }
 
-if [ "$CAMERA" = auto ]; then
-    CAMERA="$(detect_camera)"
-    case "$CAMERA" in
-        picamera2) info "Found the Pi camera module (ribbon cable)" ;;
-        opencv)    info "Found a USB webcam" ;;
-        mock)      warn "No camera found. Using simulated frames. Check the ribbon cable, then run setup again." ;;
-    esac
+# The Pi camera needs camera_auto_detect=1 in the boot config (the Bookworm
+# default). An image that turned it off, or still uses the legacy camera
+# stack (start_x=1), never shows the camera to picamera2.
+BOOT_CFG=""
+for f in /boot/firmware/config.txt /boot/config.txt; do
+    [ -f "$f" ] && { BOOT_CFG="$f"; break; }
+done
+NEED_REBOOT=0
+# A config that loads a camera overlay by hand is left alone.
+if [ -n "$BOOT_CFG" ] && ! grep -qE '^[[:space:]]*camera_auto_detect=1' "$BOOT_CFG" \
+    && ! grep -qE '^[[:space:]]*dtoverlay=(ov5647|imx219|imx477|imx708|imx296|imx519)' "$BOOT_CFG"; then
+    sudo cp "$BOOT_CFG" "$BOOT_CFG.farmlens-backup"
+    sudo sed -i -E 's/^[[:space:]]*camera_auto_detect=.*/camera_auto_detect=1/' "$BOOT_CFG"
+    grep -qE '^camera_auto_detect=1' "$BOOT_CFG" || echo "camera_auto_detect=1" | sudo tee -a "$BOOT_CFG" > /dev/null
+    sudo sed -i -E 's/^[[:space:]]*start_x=1/#start_x=1  # legacy camera stack, off for picamera2/' "$BOOT_CFG"
+    NEED_REBOOT=1
+    info "Turned on camera auto-detect in $BOOT_CFG (backup: $BOOT_CFG.farmlens-backup)"
 fi
+
+info "Checking the camera: opening it and taking a test photo..."
+mkdir -p "$PROJ_DIR/logs"
+CHECK="$(detect_camera | tail -1)"
+FOUND="${CHECK%% *}"
+CHECK_MSG="${CHECK#* }"
+case "$FOUND" in
+    picamera2) info "Pi camera module works: $CHECK_MSG" ;;
+    opencv)    info "USB webcam works: $CHECK_MSG" ;;
+    *)
+        FOUND=mock
+        warn "Camera check: $CHECK_MSG"
+        if [ "$NEED_REBOOT" = 1 ]; then
+            info "No camera seen yet; the boot config change takes effect after the reboot."
+        else
+            warn "No camera found right now. Power off, check the ribbon cable (contacts facing"
+            warn "the HDMI ports on a Pi 4), power on: the node looks for it again at every start."
+        fi ;;
+esac
+# "auto" makes the node look for the camera each time it starts, so a camera
+# connected or fixed later works after a reboot with no new setup run.
+[ "$CAMERA" = auto ] || info "Camera forced to $CAMERA (--camera)"
 set_env API_HOST 0.0.0.0
 set_env API_PORT "$PORT"
 set_env CAMERA_BACKEND "$CAMERA"
 grep -qE '^SENSOR_MODE=' "$ENV_FILE" || set_env SENSOR_MODE mock
 grep -qE '^AI_MODE=' "$ENV_FILE" || set_env AI_MODE mock
-info "CAMERA_BACKEND=$CAMERA, API_HOST=0.0.0.0, port $PORT"
+info "CAMERA_BACKEND=$CAMERA (found now: $FOUND), API_HOST=0.0.0.0, port $PORT"
 
 # ── 6. Hostname ──────────────────────────────────────────────────────────────
 bold "6/8 Hostname"

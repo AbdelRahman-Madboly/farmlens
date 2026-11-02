@@ -40,10 +40,24 @@ fi
 
 # Camera
 CAM="$(printf '%s' "${STATUS:-}" | sed -n 's/.*"camera_backend":"\([^"]*\)".*/\1/p')"
+NOTE="$(printf '%s' "${STATUS:-}" | sed -n 's/.*"camera_note":"\([^"]*\)".*/\1/p')"
 case "$CAM" in
     picamera2|opencv) ok "Camera: $CAM" ;;
-    mock) bad "Camera: simulated frames (no camera found). Check the ribbon cable, then run setup.sh --no-apt" ;;
-    *) bad "Camera: unknown" ;;
+    *)
+        bad "Camera: ${CAM:-unknown} (simulated frames, no real camera in use)"
+        [ -n "$NOTE" ] && note "Node says: $NOTE"
+        # What the Pi camera stack itself sees
+        LIST=""
+        for t in rpicam-hello libcamera-hello; do
+            command -v "$t" > /dev/null && { LIST="$("$t" --list-cameras 2>&1 | head -6)"; break; }
+        done
+        [ -n "$LIST" ] && { note "Camera list:"; printf '%s\n' "$LIST" | sed 's/^/         /'; }
+        for f in /boot/firmware/config.txt /boot/config.txt; do
+            [ -f "$f" ] && { note "Boot config ($f): $(grep -E '^[[:space:]]*(camera_auto_detect|start_x|dtoverlay=(ov|imx))' "$f" | tr '\n' ' ')"; break; }
+        done
+        id -nG | grep -qw video || note "User $(id -un) is not in the video group: sudo usermod -aG video $(id -un), then reboot"
+        note "Fix: power off, reseat the ribbon (contacts facing the HDMI ports on a Pi 4), power on."
+        note "The node looks for the camera at every start (CAMERA_BACKEND=auto)." ;;
 esac
 
 # Wi-Fi
