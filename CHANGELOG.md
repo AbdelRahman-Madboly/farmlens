@@ -10,6 +10,9 @@ All notable changes to this project are listed here. The format follows
 
 - `docs/SETUP-GUIDE.md`: step-by-step setup for a new user, from Raspberry Pi
   Imager settings to the live camera, with screenshots and troubleshooting.
+- `install.sh` at the repository root: a shorter install command for the Pi.
+- `farmlens-wifi.timer` on the Pi: moves it to the FarmLens hotspot within
+  about 30 s when the hotspot comes on after the Pi booted on another network.
 - `node/rpi/status.sh`: one-screen health check (service, API, camera, Wi-Fi,
   log); `setup.sh` prints where it is.
 - Case CAD in `hardware/pi-cam-case`: STEP files for the parts and the
@@ -20,6 +23,10 @@ All notable changes to this project are listed here. The format follows
 
 ### Changed
 
+- README restyled to the shared layout: centred header with badges, why,
+  highlights, status and roadmap.
+- Setup flow in the README and the guide: install over normal Wi-Fi, then turn
+  on the hotspot and reboot.
 - Web dashboard: the camera view is at most 640 px wide, so the readings stay
   on screen on a laptop.
 

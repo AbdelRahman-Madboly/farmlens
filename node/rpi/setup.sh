@@ -243,6 +243,7 @@ info "The node answers at $NEW_HOSTNAME.local"
 bold "7/8 Phone hotspot"
 if [ "$SKIP_WIFI" = 1 ]; then
     info "Skipped (--skip-wifi)"
+    sudo systemctl disable --now farmlens-wifi.timer > /dev/null 2>&1 || true
 elif ! command -v nmcli >/dev/null; then
     warn "NetworkManager (nmcli) not found. Use Raspberry Pi OS Bookworm or newer, or set Wi-Fi with raspi-config."
 else
@@ -277,6 +278,57 @@ else
             connection.autoconnect-retries 0 ipv4.method auto ipv6.method auto >/dev/null
         info "Saved hotspot \"$SSID\" on $WIFI_IF. The Pi joins it on every boot."
 
+        # Watcher: NetworkManager never leaves a working network for a better
+        # one, so a Pi that booted before the hotspot was on would stay on the
+        # normal Wi-Fi. Every 30 s this joins the hotspot when it is in range.
+        # After a failed try it waits 5 minutes, so a wrong password cannot
+        # keep knocking the Pi off the normal Wi-Fi.
+        sudo tee /usr/local/bin/farmlens-wifi-watch > /dev/null <<'WATCHEOF'
+#!/bin/sh
+# Join the FarmLens hotspot whenever it is in range (installed by setup.sh).
+CON=farmlens-hotspot
+STAMP=/run/farmlens-wifi-failed
+nmcli -t -f NAME connection show --active | grep -qx "$CON" && exit 0
+if [ -f "$STAMP" ] && [ $(( $(date +%s) - $(stat -c %Y "$STAMP") )) -lt 300 ]; then exit 0; fi
+SSID="$(nmcli -g 802-11-wireless.ssid connection show "$CON" 2>/dev/null)" || exit 0
+[ -n "$SSID" ] || exit 0
+nmcli -t -f SSID device wifi list --rescan auto 2>/dev/null | grep -qxF "$SSID" || exit 0
+logger -t farmlens-wifi "Hotspot $SSID in range, joining it"
+if nmcli --wait 30 connection up "$CON" > /dev/null 2>&1; then
+    rm -f "$STAMP"
+else
+    touch "$STAMP"
+    logger -t farmlens-wifi "Could not join $SSID, retrying in 5 minutes"
+fi
+WATCHEOF
+        sudo chmod 755 /usr/local/bin/farmlens-wifi-watch
+        sudo tee /etc/systemd/system/farmlens-wifi.service > /dev/null <<'WSVCEOF'
+[Unit]
+Description=Join the FarmLens phone hotspot when it is in range
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/farmlens-wifi-watch
+WSVCEOF
+        sudo tee /etc/systemd/system/farmlens-wifi.timer > /dev/null <<'WTIMEOF'
+[Unit]
+Description=Check for the FarmLens phone hotspot every 30 s
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=30
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target
+WTIMEOF
+        sudo systemctl daemon-reload
+        # Enabled for the next boot only: starting it now could switch Wi-Fi
+        # in the middle of this SSH session.
+        sudo systemctl enable farmlens-wifi.timer > /dev/null 2>&1
+        info "If the Pi starts on another network, it moves to \"$SSID\" as soon as the hotspot is on."
+
         WIFI_STATE="$(nmcli -t -f DEVICE,STATE device | awk -F: -v d="$WIFI_IF" '$1==d{print $2}')"
         if [ "$CONNECT_NOW" = 1 ] || [ "$WIFI_STATE" != connected ]; then
             info "Connecting to \"$SSID\" now (the hotspot must be on)..."
@@ -286,8 +338,9 @@ else
                 warn "Could not connect now. Turn the hotspot on and reboot, or see Troubleshooting in node/rpi/README.md"
             fi
         else
-            info "Wi-Fi is in use right now, so the Pi switches to the hotspot at the next reboot"
-            info "(or run again with --connect-now)"
+            info "Staying on the current Wi-Fi for now, so this session is not cut."
+            info "Next: turn on the \"$SSID\" hotspot, then run: sudo reboot"
+            info "(or run again with --connect-now to switch right away)"
         fi
     elif [ -n "${EXISTING:-}" ]; then
         info "Kept the saved hotspot \"$EXISTING\""
@@ -345,6 +398,9 @@ cat <<DONE
   In the app      : open FarmLens, tap "Find my node"
   In a browser    : http://$NEW_HOSTNAME.local:$PORT   or   http://${IPS%% *}:$PORT
   Pi addresses    : ${IPS:-none yet}
+
+  NEXT STEP       : turn on the phone hotspot, then run  sudo reboot
+                    After about a minute the Pi is on the hotspot; open the app.
 
   The node starts by itself on every boot and joins the phone hotspot when it is on.
   Update later    : run this same script again
