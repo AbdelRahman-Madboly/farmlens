@@ -1,5 +1,7 @@
 # FarmLens
 
+<img src="docs/readme-icon.png" width="96" align="right" alt="FarmLens icon">
+
 Crop-health node prototype: a Raspberry Pi server that combines a camera
 image score with soil-moisture and water-level readings into one risk score,
 an ESP32 firmware that sends sensor readings to it, and a Flutter app that
@@ -13,6 +15,13 @@ simulators in this repository.
 **Download the Android app:**
 [farmlens.apk](https://github.com/AbdelRahman-Madboly/farmlens/releases/latest/download/farmlens.apk)
 (all versions on the [releases page](https://github.com/AbdelRahman-Madboly/farmlens/releases)).
+
+| Case design | In the field | Close up |
+|---|---|---|
+| ![Pi camera case on a 100 mm trunk](hardware/pi-cam-case/images/pi-cam-case-on-trunk.png) | ![FarmLens node in a tomato field](hardware/pi-cam-case/images/concept-field.jpg) | ![FarmLens case on a trunk](hardware/pi-cam-case/images/concept-on-trunk.jpg) |
+
+The first picture is the 3D design. The other two are concept images of the planned field setup,
+not photos of a built unit.
 
 ## Demo with a Raspberry Pi and a phone hotspot
 
@@ -85,6 +94,17 @@ dashboard. If it shows the Connect screen, tap **Find my node**. The
 The node starts on every boot and joins the hotspot by itself. The app finds
 it again even if its address changed.
 
+### Using the app
+
+| Screen | What to do there |
+|---|---|
+| Dashboard | The combined risk score, the moisture and water cards and the latest label. An alert banner appears when the score passes the alert threshold |
+| Camera | The live stream from the Pi camera with its frame rate. It reconnects by itself after a drop |
+| Alerts | Every cycle that passed the threshold while the app was open |
+| Log | One row per 30 s cycle. Pull down to refresh, tap a row to see that cycle's image and numbers, export the list as JSON |
+| Settings | Move the two weight sliders and the threshold, pick the crop, test the connection. Saving writes the values to the node |
+| Connect | Opens when no node is found: **Find my node** scans again, or type the address and port `8000` |
+
 ### Update the Pi
 
 Run the same command from step 4 again (or `~/farmlens/node/rpi/setup.sh`).
@@ -145,6 +165,15 @@ flutter run
 Enter the computer's LAN address and port `8000` on the Connect screen. An
 Android emulator reaches the host machine at `10.0.2.2`.
 
+## Hardware
+
+| Part | Used | Notes |
+|---|---|---|
+| Computer | Raspberry Pi 4 Model B | Runs the FastAPI node, camera capture and the web dashboard |
+| Camera | Raspberry Pi camera module v1.3, or a USB webcam | picamera2 or OpenCV, picked by `setup.sh` |
+| Sensor board | ESP32 (`esp32dev`) | Sends moisture and water readings to `POST /api/sensor`; simulated readings by default |
+| Case | 3D-printed PETG case with rain hood and a tree saddle | STLs, part list and screws in [`hardware/pi-cam-case`](hardware/pi-cam-case) |
+
 ## Repository layout
 
 | Path | What it is |
@@ -152,6 +181,7 @@ Android emulator reaches the host machine at `10.0.2.2`.
 | `node/rpi/` | Python/FastAPI server for the Raspberry Pi, with tests. `setup.sh` and `bootstrap.sh` install it |
 | `node/firmware/` | ESP32 firmware (PlatformIO), with host-side unit tests |
 | `app/` | Flutter companion app, with unit and widget tests |
+| `hardware/pi-cam-case/` | Printable case for the Pi and camera: STLs, pictures, part list |
 | `docs/ARCHITECTURE.md` | Data flow, fusion formula, API contract |
 | `docs/roadmap.md` | Future work, including the multi-node platform |
 
