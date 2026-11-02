@@ -23,6 +23,8 @@ All notable changes to this project are listed here. The format follows
 
 ### Fixed
 
+- Case README: the saddle screws are M3 x 16, not M3 x 10 (from the CAD
+  dimensions). Added the screw totals and the nut size.
 - A Pi whose camera was not seen during setup stayed on simulated frames for
   good. The node now detects the camera at every start (`CAMERA_BACKEND=auto`,
   written by `setup.sh`), reports why it fell back (`camera_note` in
