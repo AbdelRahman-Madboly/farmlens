@@ -4,6 +4,25 @@ All notable changes to this project are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `docs/SETUP-GUIDE.md`: step-by-step setup for a new user, from Raspberry Pi
+  Imager settings to the live camera, with screenshots and troubleshooting.
+- `node/rpi/status.sh`: one-screen health check (service, API, camera, Wi-Fi,
+  log); `setup.sh` prints where it is.
+- Case CAD in `hardware/pi-cam-case`: STEP files for the parts and the
+  assembly, the parametric build123d source with a standalone `build.py`, a
+  sliced Bambu Lab A1 plate with the nut pauses, and CAD renders.
+- README: app and web dashboard screenshots, a diagram of how the parts
+  connect, a quick start and a hardware section with the case files.
+
+### Changed
+
+- Web dashboard: the camera view is at most 640 px wide, so the readings stay
+  on screen on a laptop.
+
 ## [0.2.0] - 2026-11-02
 
 Makes the Pi and the phone app work together for a field demo over a phone

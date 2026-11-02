@@ -27,3 +27,6 @@ node/firmware/include/secrets.h
 # Editors and OS
 .idea/
 .DS_Store
+
+# Local tool output
+.playwright-mcp/
