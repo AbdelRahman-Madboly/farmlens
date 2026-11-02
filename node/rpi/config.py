@@ -71,7 +71,8 @@ API_PORT = _env_int("API_PORT", 8000)
 # ═══════════════════════════════════════════════════════════════════════════════
 # CAMERA
 # ═══════════════════════════════════════════════════════════════════════════════
-# CAMERA_BACKEND: "mock" (synthetic frames, no hardware), "picamera2"
+# CAMERA_BACKEND: "auto" (Pi camera, else USB webcam, else mock; what
+# setup.sh writes on the Pi), "mock" (synthetic frames, no hardware), "picamera2"
 # (Pi camera on the CSI ribbon) or "opencv" (USB webcam)
 CAMERA_BACKEND = _env("CAMERA_BACKEND", "mock")
 CAMERA_INDEX   = _env_int("CAMERA_INDEX", 0)   # USB webcam index (opencv only)
