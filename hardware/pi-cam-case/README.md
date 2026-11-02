@@ -59,10 +59,13 @@ first layer that covers the nut pockets.
 
 | Item | Qty | Use |
 |---|---|---|
-| M1.6 x 5 self-tapping screws | 8 | Pi (4) and camera (4) to their posts |
-| M3 x 12 countersunk screws + M3 nuts | 4 + 4 | Lid to base; nuts dropped into pockets at a print pause |
-| M3 x 10 countersunk screws + M3 nuts | 4 + 4 | Saddle to base, screwed from inside the case |
-| 25 mm strap (hook-and-loop or ratchet) | 1 | Saddle to trunk |
+| M1.6 x 5 self-tapping screws | 8 | Pi (4) and camera (4) to their posts, 1.3 mm pilots. The Pi (2.7 mm) and camera (2.1 mm) holes cannot take M3 |
+| M3 x 12 countersunk screws + M3 nuts | 4 + 4 | Lid to base; nuts dropped into the base pockets at the Z 29.6 mm pause |
+| M3 x 16 countersunk screws + M3 nuts | 4 + 4 | Saddle to base, screwed from inside the case; nuts dropped into the saddle chambers at the Z 5.52 mm pause. 16 mm = 6 mm case back + 3 mm saddle web + 2.12 mm nut + at least 4.88 mm past the nut |
+| 25 mm strap (hook-and-loop or ratchet), about 1.5 mm thick | 1 | Saddle to trunk |
+
+The nut pockets fit a standard M3 nut, 5.31 mm across flats and 2.12 mm thick.
+In total: 8 x M1.6 x 5, 4 x M3 x 12, 4 x M3 x 16 and 8 x M3 nuts.
 
 ## Assembly
 
@@ -70,7 +73,7 @@ first layer that covers the nut pockets.
 2. Screw the camera to the lid posts (M1.6 x 5), lens through the square window.
 3. Screw the Pi to the base standoffs (M1.6 x 5), ports down.
 4. Plug the camera ribbon into the Pi (contacts facing the HDMI ports) and fold it into the case.
-5. Screw the saddle to the back of the base from inside (M3 x 10 countersunk).
+5. Screw the saddle to the back of the base from inside (M3 x 16 countersunk).
 6. Close the lid (M3 x 12 countersunk into the captured nuts).
 7. Run the strap through the saddle tunnel and round the trunk; the USB-C power cable enters
    from below.
