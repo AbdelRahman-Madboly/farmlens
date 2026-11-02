@@ -1,0 +1,2 @@
+build123d>=0.9
+pyyaml>=6

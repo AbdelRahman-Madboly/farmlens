@@ -62,7 +62,9 @@ hotspot is in the [main README](../../README.md#demo-with-a-raspberry-pi-and-a-p
 5. sets the hostname to `farmlens`, so the node answers at `farmlens.local`
 6. saves the phone hotspot as the NetworkManager connection
    `farmlens-hotspot` with priority 100, so the Pi joins it at every boot.
-   The default hotspot is name `FarmLens`, password `00000000`
+   The default hotspot is name `FarmLens`, password `00000000`. A
+   `farmlens-wifi.timer` (from the next boot) moves the Pi to the hotspot within
+   about 30 s whenever it is in range and the Pi is on another network
 7. installs and starts the `farmlens` systemd service
 
 | Option | Meaning |
@@ -75,6 +77,8 @@ hotspot is in the [main README](../../README.md#demo-with-a-raspberry-pi-and-a-p
 | `--hostname NAME` | Hostname (default `farmlens`) |
 | `--camera MODE` | `auto` (default), `picamera2`, `opencv` or `mock` |
 | `--no-pull`, `--no-apt` | Skip `git pull` or apt, for quick re-runs |
+
+Health check: `./status.sh` shows the service, camera, Wi-Fi and last log lines on one screen.
 
 Useful commands: `journalctl -u farmlens -f` (live log),
 `sudo systemctl restart farmlens`, `nmcli connection show` (saved networks).
@@ -92,7 +96,7 @@ Useful commands: `journalctl -u farmlens -f` (live log),
 | `AI_MODE` | `mock` | `mock` or `tflite` |
 | `MODEL_FILE` | `plant_disease.tflite` | Model file name inside `models/` |
 | `CONFIDENCE_THRESHOLD` | `0.25` | Below this top probability the result is `none` |
-| `CAMERA_BACKEND` | `mock` | `mock`, `picamera2` or `opencv`. `setup.sh` sets it from the camera it finds |
+| `CAMERA_BACKEND` | `mock` | `auto` (Pi camera, else USB webcam, else mock, decided at each start; `setup.sh` writes this), `mock`, `picamera2` or `opencv`. `/api/status` reports the one in use in `camera_backend` and why it fell back in `camera_note` |
 | `STREAM_FPS` | `10` | Frames per second of `/api/stream` |
 | `STREAM_QUALITY` | `70` | JPEG quality of `/api/stream` (1 to 100) |
 | `CYCLE_INTERVAL_S` | `30` | Seconds between cycles |
@@ -126,3 +130,4 @@ No model ships with this repository. To try one:
 | `setup.sh` | Raspberry Pi install and update |
 | `bootstrap.sh` | Clones or updates the repo, then runs `setup.sh` |
 | `install.sh` | Old name, runs `setup.sh` |
+| `status.sh` | Health check: service, API, camera, Wi-Fi, log |

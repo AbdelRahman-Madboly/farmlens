@@ -1,12 +1,16 @@
 """
 FarmLens Camera Module
 =======================
-Three backends, switchable via CAMERA_BACKEND in .env:
-  - "mock"      : synthetic frames, no camera needed (default)
+Backends, chosen by CAMERA_BACKEND in .env:
+  - "auto"      : Pi camera if one is found, else a USB webcam, else mock.
+                  Detected each time the node starts, so a camera plugged in
+                  later works after a reboot. setup.sh writes this.
+  - "mock"      : synthetic frames, no camera needed (default off the Pi)
   - "picamera2" : Pi camera on the CSI ribbon
   - "opencv"    : USB webcam
 
 To switch camera: edit CAMERA_BACKEND in .env, restart service.
+backend() reports the one in use; note() says why, when it fell back.
 """
 import threading
 import time
@@ -21,14 +25,6 @@ from config import (
 
 log = logging.getLogger("farmlens.camera")
 
-# ── Try to import picamera2 ───────────────────────────────────────────────────
-_HAVE_PICAMERA2 = False
-if CAMERA_BACKEND == "picamera2":
-    try:
-        from picamera2 import Picamera2
-        _HAVE_PICAMERA2 = True
-    except ImportError:
-        log.warning("picamera2 not installed - falling back to opencv backend")
 
 
 class CameraCapture:
@@ -46,18 +42,43 @@ class CameraCapture:
         # The cycle loop, the snapshot endpoint and every open stream share one
         # camera, so captures are serialised.
         self._lock    = threading.Lock()
+        self._note    = ""
 
         if self._backend == "mock":
             log.info("Camera: MOCK backend, synthetic frames")
-        elif self._backend == "picamera2" and _HAVE_PICAMERA2:
-            self._init_picamera2()
+        elif self._backend == "auto":
+            self._init_auto()
+        elif self._backend == "picamera2":
+            if not self._init_picamera2():
+                self._init_opencv()
         else:
             self._init_opencv()
 
+    def _init_auto(self):
+        """Pi camera, then a USB webcam that really returns frames, then mock."""
+        if self._init_picamera2():
+            return
+        pi_note = self._note
+        if self._init_opencv(require_frame=True):
+            return
+        self._backend = "mock"
+        self._note = f"no camera found ({pi_note}; {self._note})"
+        log.warning("Camera auto: %s. Using simulated frames.", self._note)
+
     # ── Init ─────────────────────────────────────────────────────────────────
 
-    def _init_picamera2(self):
+    def _init_picamera2(self) -> bool:
         try:
+            from picamera2 import Picamera2
+        except ImportError:
+            self._note = "picamera2 is not installed"
+            log.warning("Camera: %s", self._note)
+            return False
+        try:
+            if not Picamera2.global_camera_info():
+                self._note = "the Pi camera stack sees no camera (check the ribbon cable)"
+                log.warning("Camera: %s", self._note)
+                return False
             self._cam_pi = Picamera2()
             # A video configuration keeps the sensor streaming, so each
             # capture_array() returns in one frame time and the MJPEG stream
@@ -73,24 +94,34 @@ class CameraCapture:
             time.sleep(1)   # allow sensor to settle
             self._backend = "picamera2"
             log.info("RPi Camera ready via picamera2 (%dx%d)", CAMERA_WIDTH, CAMERA_HEIGHT)
+            return True
         except Exception as e:
-            log.warning("picamera2 init failed: %s - trying opencv", e)
+            self._note = f"picamera2 could not start the camera: {e}"
+            log.warning("Camera: %s", self._note)
+            if self._cam_pi is not None:
+                try: self._cam_pi.close()
+                except Exception: pass
             self._cam_pi = None
-            self._init_opencv()
+            return False
 
-    def _init_opencv(self):
+    def _init_opencv(self, require_frame: bool = False) -> bool:
         cap = cv2.VideoCapture(CAMERA_INDEX)
-        if cap.isOpened():
+        # On a Pi, /dev/video0 can be a codec or the CSI receiver, which opens
+        # but never gives a frame; auto mode only accepts a camera that does.
+        ok = cap.isOpened() and (not require_frame or cap.read()[0])
+        if ok:
             cap.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
             self._cam_cv = cap
             self._backend = "opencv"
             log.info("Camera ready via OpenCV index=%d (%dx%d)",
                      CAMERA_INDEX, CAMERA_WIDTH, CAMERA_HEIGHT)
-        else:
-            cap.release()
-            self._backend = "none"
-            log.warning("No camera found, placeholder frames will be used")
+            return True
+        cap.release()
+        self._backend = "none"
+        self._note = f"no USB webcam at index {CAMERA_INDEX}"
+        log.warning("No camera found, placeholder frames will be used")
+        return False
 
     # ── Capture ──────────────────────────────────────────────────────────────
 
@@ -125,6 +156,10 @@ class CameraCapture:
 
     def backend(self) -> str:
         return self._backend
+
+    def note(self) -> str:
+        """Why the camera fell back, or "" when the chosen camera is working."""
+        return self._note
 
     def is_ready(self) -> bool:
         if self._backend == "mock":

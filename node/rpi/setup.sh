@@ -28,7 +28,8 @@
 #                       that runs over the current Wi-Fi)
 #   --country CC        Wi-Fi country code (default EG)
 #   --hostname NAME     Pi hostname (default farmlens)
-#   --camera MODE       auto (default), picamera2, opencv or mock
+#   --camera MODE       auto (default: the node finds the camera at each start),
+#                       picamera2, opencv or mock
 #   --no-pull           do not run git pull
 #   --no-apt            skip apt (faster re-runs, offline)
 # =============================================================================
@@ -185,39 +186,107 @@ rm -f "$PROJ_DIR/start.sh"   # left by the old installer, no longer used
 bold "5/8 Camera and settings"
 [ -f "$ENV_FILE" ] || { cp "$PROJ_DIR/.env.example" "$ENV_FILE"; info "Created .env"; }
 
+# Opens the camera for real and takes one test photo (logs/camera-test.jpg).
+# Prints "<backend> <message>". Never stops the setup.
+TEST_JPG="$PROJ_DIR/logs/camera-test.jpg"
 detect_camera() {
-    if "$VENV/bin/python" -c "
-from picamera2 import Picamera2
-import sys
-sys.exit(0 if Picamera2.global_camera_info() else 1)" 2>/dev/null; then
-        echo picamera2; return
-    fi
-    # /dev/video* also exists for the Pi's video codecs, so open and read.
-    if "$VENV/bin/python" -c "
-import cv2, sys
-cap = cv2.VideoCapture(0)
-ok = cap.isOpened() and cap.read()[0]
-cap.release()
-sys.exit(0 if ok else 1)" 2>/dev/null; then
-        echo opencv; return
-    fi
-    echo mock
+    timeout 40 "$VENV/bin/python" - "$TEST_JPG" 2>/dev/null <<'PYEOF' || echo "mock the camera check did not finish"
+import sys, time
+out = sys.argv[1]
+
+def report(backend, frame, how):
+    import cv2
+    bgr = frame if how == "bgr" else cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(out, bgr)
+    h, w = frame.shape[:2]
+    mean = float(frame.mean())
+    dark = "  WARNING: the photo is almost black (lens cap on, or a dark room?)" if mean < 8 else ""
+    print(f"{backend} took a {w}x{h} test photo, saved to {out}{dark}")
+    sys.exit(0)
+
+reasons = []
+try:
+    from picamera2 import Picamera2
+    if Picamera2.global_camera_info():
+        cam = Picamera2()
+        cam.configure(cam.create_video_configuration(main={"size": (640, 480), "format": "BGR888"}))
+        cam.start()
+        time.sleep(2)
+        frame = cam.capture_array()
+        cam.stop(); cam.close()
+        report("picamera2", frame, "rgb")
+    reasons.append("the Pi camera stack sees no camera")
+except ImportError:
+    reasons.append("picamera2 is not installed")
+except Exception as e:
+    reasons.append(f"the Pi camera did not start: {e}")
+
+try:
+    import cv2
+    cap = cv2.VideoCapture(0)
+    ok, frame = False, None
+    if cap.isOpened():
+        for _ in range(15):          # let auto-exposure settle, keep the last frame
+            got, f = cap.read()
+            if got:
+                ok, frame = True, f
+    cap.release()
+    if ok and frame is not None:
+        report("opencv", frame, "bgr")
+    reasons.append("no USB webcam")
+except Exception as e:
+    reasons.append(f"OpenCV error: {e}")
+
+print("mock " + "; ".join(reasons))
+PYEOF
 }
 
-if [ "$CAMERA" = auto ]; then
-    CAMERA="$(detect_camera)"
-    case "$CAMERA" in
-        picamera2) info "Found the Pi camera module (ribbon cable)" ;;
-        opencv)    info "Found a USB webcam" ;;
-        mock)      warn "No camera found. Using simulated frames. Check the ribbon cable, then run setup again." ;;
-    esac
+# The Pi camera needs camera_auto_detect=1 in the boot config (the Bookworm
+# default). An image that turned it off, or still uses the legacy camera
+# stack (start_x=1), never shows the camera to picamera2.
+BOOT_CFG=""
+for f in /boot/firmware/config.txt /boot/config.txt; do
+    [ -f "$f" ] && { BOOT_CFG="$f"; break; }
+done
+NEED_REBOOT=0
+# A config that loads a camera overlay by hand is left alone.
+if [ -n "$BOOT_CFG" ] && ! grep -qE '^[[:space:]]*camera_auto_detect=1' "$BOOT_CFG" \
+    && ! grep -qE '^[[:space:]]*dtoverlay=(ov5647|imx219|imx477|imx708|imx296|imx519)' "$BOOT_CFG"; then
+    sudo cp "$BOOT_CFG" "$BOOT_CFG.farmlens-backup"
+    sudo sed -i -E 's/^[[:space:]]*camera_auto_detect=.*/camera_auto_detect=1/' "$BOOT_CFG"
+    grep -qE '^camera_auto_detect=1' "$BOOT_CFG" || echo "camera_auto_detect=1" | sudo tee -a "$BOOT_CFG" > /dev/null
+    sudo sed -i -E 's/^[[:space:]]*start_x=1/#start_x=1  # legacy camera stack, off for picamera2/' "$BOOT_CFG"
+    NEED_REBOOT=1
+    info "Turned on camera auto-detect in $BOOT_CFG (backup: $BOOT_CFG.farmlens-backup)"
 fi
+
+info "Checking the camera: opening it and taking a test photo..."
+mkdir -p "$PROJ_DIR/logs"
+CHECK="$(detect_camera | tail -1)"
+FOUND="${CHECK%% *}"
+CHECK_MSG="${CHECK#* }"
+case "$FOUND" in
+    picamera2) info "Pi camera module works: $CHECK_MSG" ;;
+    opencv)    info "USB webcam works: $CHECK_MSG" ;;
+    *)
+        FOUND=mock
+        warn "Camera check: $CHECK_MSG"
+        if [ "$NEED_REBOOT" = 1 ]; then
+            info "No camera seen yet; the boot config change takes effect after the reboot."
+        else
+            warn "No camera found right now. Power off, check the ribbon cable (contacts facing"
+            warn "the HDMI ports on a Pi 4), power on: the node looks for it again at every start."
+        fi ;;
+esac
+# "auto" makes the node look for the camera each time it starts, so a camera
+# connected or fixed later works after a reboot with no new setup run.
+[ "$CAMERA" = auto ] || info "Camera forced to $CAMERA (--camera)"
 set_env API_HOST 0.0.0.0
 set_env API_PORT "$PORT"
 set_env CAMERA_BACKEND "$CAMERA"
 grep -qE '^SENSOR_MODE=' "$ENV_FILE" || set_env SENSOR_MODE mock
 grep -qE '^AI_MODE=' "$ENV_FILE" || set_env AI_MODE mock
-info "CAMERA_BACKEND=$CAMERA, API_HOST=0.0.0.0, port $PORT"
+info "CAMERA_BACKEND=$CAMERA (found now: $FOUND), API_HOST=0.0.0.0, port $PORT"
 
 # ── 6. Hostname ──────────────────────────────────────────────────────────────
 bold "6/8 Hostname"
@@ -243,6 +312,7 @@ info "The node answers at $NEW_HOSTNAME.local"
 bold "7/8 Phone hotspot"
 if [ "$SKIP_WIFI" = 1 ]; then
     info "Skipped (--skip-wifi)"
+    sudo systemctl disable --now farmlens-wifi.timer > /dev/null 2>&1 || true
 elif ! command -v nmcli >/dev/null; then
     warn "NetworkManager (nmcli) not found. Use Raspberry Pi OS Bookworm or newer, or set Wi-Fi with raspi-config."
 else
@@ -277,6 +347,57 @@ else
             connection.autoconnect-retries 0 ipv4.method auto ipv6.method auto >/dev/null
         info "Saved hotspot \"$SSID\" on $WIFI_IF. The Pi joins it on every boot."
 
+        # Watcher: NetworkManager never leaves a working network for a better
+        # one, so a Pi that booted before the hotspot was on would stay on the
+        # normal Wi-Fi. Every 30 s this joins the hotspot when it is in range.
+        # After a failed try it waits 5 minutes, so a wrong password cannot
+        # keep knocking the Pi off the normal Wi-Fi.
+        sudo tee /usr/local/bin/farmlens-wifi-watch > /dev/null <<'WATCHEOF'
+#!/bin/sh
+# Join the FarmLens hotspot whenever it is in range (installed by setup.sh).
+CON=farmlens-hotspot
+STAMP=/run/farmlens-wifi-failed
+nmcli -t -f NAME connection show --active | grep -qx "$CON" && exit 0
+if [ -f "$STAMP" ] && [ $(( $(date +%s) - $(stat -c %Y "$STAMP") )) -lt 300 ]; then exit 0; fi
+SSID="$(nmcli -g 802-11-wireless.ssid connection show "$CON" 2>/dev/null)" || exit 0
+[ -n "$SSID" ] || exit 0
+nmcli -t -f SSID device wifi list --rescan auto 2>/dev/null | grep -qxF "$SSID" || exit 0
+logger -t farmlens-wifi "Hotspot $SSID in range, joining it"
+if nmcli --wait 30 connection up "$CON" > /dev/null 2>&1; then
+    rm -f "$STAMP"
+else
+    touch "$STAMP"
+    logger -t farmlens-wifi "Could not join $SSID, retrying in 5 minutes"
+fi
+WATCHEOF
+        sudo chmod 755 /usr/local/bin/farmlens-wifi-watch
+        sudo tee /etc/systemd/system/farmlens-wifi.service > /dev/null <<'WSVCEOF'
+[Unit]
+Description=Join the FarmLens phone hotspot when it is in range
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/farmlens-wifi-watch
+WSVCEOF
+        sudo tee /etc/systemd/system/farmlens-wifi.timer > /dev/null <<'WTIMEOF'
+[Unit]
+Description=Check for the FarmLens phone hotspot every 30 s
+
+[Timer]
+OnBootSec=20
+OnUnitActiveSec=30
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target
+WTIMEOF
+        sudo systemctl daemon-reload
+        # Enabled for the next boot only: starting it now could switch Wi-Fi
+        # in the middle of this SSH session.
+        sudo systemctl enable farmlens-wifi.timer > /dev/null 2>&1
+        info "If the Pi starts on another network, it moves to \"$SSID\" as soon as the hotspot is on."
+
         WIFI_STATE="$(nmcli -t -f DEVICE,STATE device | awk -F: -v d="$WIFI_IF" '$1==d{print $2}')"
         if [ "$CONNECT_NOW" = 1 ] || [ "$WIFI_STATE" != connected ]; then
             info "Connecting to \"$SSID\" now (the hotspot must be on)..."
@@ -286,8 +407,9 @@ else
                 warn "Could not connect now. Turn the hotspot on and reboot, or see Troubleshooting in node/rpi/README.md"
             fi
         else
-            info "Wi-Fi is in use right now, so the Pi switches to the hotspot at the next reboot"
-            info "(or run again with --connect-now)"
+            info "Staying on the current Wi-Fi for now, so this session is not cut."
+            info "Next: turn on the \"$SSID\" hotspot, then run: sudo reboot"
+            info "(or run again with --connect-now to switch right away)"
         fi
     elif [ -n "${EXISTING:-}" ]; then
         info "Kept the saved hotspot \"$EXISTING\""
@@ -346,8 +468,12 @@ cat <<DONE
   In a browser    : http://$NEW_HOSTNAME.local:$PORT   or   http://${IPS%% *}:$PORT
   Pi addresses    : ${IPS:-none yet}
 
+  NEXT STEP       : turn on the phone hotspot, then run  sudo reboot
+                    After about a minute the Pi is on the hotspot; open the app.
+
   The node starts by itself on every boot and joins the phone hotspot when it is on.
   Update later    : run this same script again
+  Health check    : $PROJ_DIR/status.sh
   Live logs       : journalctl -u $SERVICE -f
   Restart         : sudo systemctl restart $SERVICE
 
