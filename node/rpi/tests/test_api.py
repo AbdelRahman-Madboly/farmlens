@@ -125,3 +125,48 @@ def test_end_to_end_cycle_in_mock_mode(client, camera):
 def test_logs_limit_is_clamped(client):
     assert client.get("/api/logs?limit=0").status_code == 200
     assert client.get("/api/logs?limit=100000").json()["count"] == 0
+
+
+def test_status_identifies_the_node_for_discovery(client, camera):
+    body = client.get("/api/status").json()
+    assert body["service"] == "farmlens"
+    assert body["stream"] is True
+    assert body["version"] == api.app.version
+
+
+def test_stream_sends_mjpeg_frames(client, camera):
+    r = client.get("/api/stream?frames=3&fps=30")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("multipart/x-mixed-replace")
+    assert "boundary=frame" in r.headers["content-type"]
+    parts = r.content.split(b"--frame\r\n")[1:]
+    assert len(parts) == 3
+    for part in parts:
+        head, _, body = part.partition(b"\r\n\r\n")
+        assert b"Content-Type: image/jpeg" in head
+        length = int(head.split(b"Content-Length: ")[1].split(b"\r\n")[0])
+        assert body[:2] == b"\xff\xd8"            # JPEG start of image
+        assert body[length - 2:length] == b"\xff\xd9"  # JPEG end of image
+
+
+def test_stream_without_camera_is_503(client):
+    assert client.get("/api/stream?frames=1").status_code == 503
+
+
+def test_camera_capture_is_thread_safe(camera):
+    import threading
+    shapes, errors = [], []
+
+    def grab():
+        try:
+            for _ in range(5):
+                shapes.append(camera.capture().shape)
+        except Exception as e:  # pragma: no cover
+            errors.append(e)
+
+    threads = [threading.Thread(target=grab) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and len(shapes) == 20

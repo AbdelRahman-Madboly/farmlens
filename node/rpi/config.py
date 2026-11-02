@@ -78,6 +78,11 @@ CAMERA_INDEX   = _env_int("CAMERA_INDEX", 0)   # USB webcam index (opencv only)
 CAMERA_WIDTH   = _env_int("CAMERA_WIDTH",  640)
 CAMERA_HEIGHT  = _env_int("CAMERA_HEIGHT", 480)
 
+# Live MJPEG stream (GET /api/stream), used by the app Camera tab and the web
+# dashboard. Lower STREAM_FPS or STREAM_QUALITY on a slow hotspot link.
+STREAM_FPS     = _env_float("STREAM_FPS", 10.0)
+STREAM_QUALITY = _env_int("STREAM_QUALITY", 70)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SENSOR FUSION DEFAULTS (editable live via POST /api/settings)
 # ═══════════════════════════════════════════════════════════════════════════════

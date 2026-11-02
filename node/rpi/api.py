@@ -9,29 +9,34 @@ Endpoints:
   GET  /api/logs       Cycle history, newest first
   GET  /api/image/{id} JPEG for a specific cycle
   GET  /api/snapshot   Fresh camera frame
+  GET  /api/stream     Live MJPEG stream (multipart/x-mixed-replace)
   GET  /api/settings   Fusion weights
   POST /api/settings   Update fusion weights live          (API key if set)
 
 Authentication: if API_KEY is set, the two POST endpoints require the header
 "X-API-Key". Read endpoints stay open. See SECURITY.md.
 """
+import asyncio
 import hmac
 import threading
 import time
 import logging
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import Response, HTMLResponse, StreamingResponse
 
 import fusion
 import logger
-from config import NODE_ID, START_TIME, API_KEY, SENSOR_MODE
+from config import (
+    NODE_ID, NODE_NAME, START_TIME, API_KEY, SENSOR_MODE, STREAM_FPS, STREAM_QUALITY,
+)
 from schema import SensorReading, SettingsUpdate
 
 log = logging.getLogger("farmlens.api")
 
-app = FastAPI(title="FarmLens Node", version="0.1.0")
+app = FastAPI(title="FarmLens Node", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -101,7 +106,11 @@ def require_api_key(x_api_key: str | None = Header(default=None)):
 @app.get("/api/status")
 def status():
     return {
+        "service":         "farmlens",
         "node_id":         NODE_ID,
+        "node_name":       NODE_NAME,
+        "version":         app.version,
+        "stream":          True,
         "mode":            _ai_mode.upper(),
         "ai_mode":         _ai_mode,
         "sensor_mode":     _sensor_mode,
@@ -174,6 +183,48 @@ def snapshot():
     if jpeg is None:
         raise HTTPException(503, "JPEG encode failed")
     return Response(content=jpeg, media_type="image/jpeg")
+
+
+STREAM_BOUNDARY = "frame"
+
+
+def _stream_jpeg() -> bytes | None:
+    import cv2
+    from camera import encode_jpeg
+    frame_bgr = cv2.cvtColor(_camera.snapshot(), cv2.COLOR_RGB2BGR)
+    return encode_jpeg(frame_bgr, quality=STREAM_QUALITY)
+
+
+@app.get("/api/stream")
+async def stream(fps: float = STREAM_FPS, frames: int = 0):
+    """Live MJPEG stream. Browsers show it in an <img>; the app parses it.
+
+    fps is capped at 30. frames > 0 stops after that many frames (tests).
+    Starlette cancels the generator when the client disconnects.
+    """
+    if _camera is None:
+        raise HTTPException(503, "Camera not initialised")
+    period = 1.0 / max(0.5, min(fps, 30.0))
+
+    async def gen():
+        sent = 0
+        while frames <= 0 or sent < frames:
+            started = time.monotonic()
+            jpeg = await run_in_threadpool(_stream_jpeg)
+            if jpeg:
+                yield (
+                    f"--{STREAM_BOUNDARY}\r\n"
+                    f"Content-Type: image/jpeg\r\n"
+                    f"Content-Length: {len(jpeg)}\r\n\r\n"
+                ).encode() + jpeg + b"\r\n"
+                sent += 1
+            await asyncio.sleep(max(0.0, period - (time.monotonic() - started)))
+
+    return StreamingResponse(
+        gen(),
+        media_type=f"multipart/x-mixed-replace; boundary={STREAM_BOUNDARY}",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/settings")
@@ -267,7 +318,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 </div>
 
 <div class="camera-wrap">
-  <img id="cam-img" src="/api/snapshot?t=0" alt="camera">
+  <img id="cam-img" src="/api/stream" alt="camera">
   <div class="cam-overlay" id="cam-label">Live</div>
 </div>
 
@@ -309,11 +360,9 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   </table>
 </div>
 
-<footer>FarmLens node · prototype on simulated data · refreshes every 5 s</footer>
+<footer>FarmLens node · prototype on simulated data · readings refresh every 5 s</footer>
 
 <script>
-let camTs = Date.now();
-
 function esc(v) {
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -382,16 +431,17 @@ async function fetchLogs() {
   } catch(e) {}
 }
 
-function refreshCamera() {
-  camTs = Date.now();
-  const img = document.getElementById('cam-img');
-  img.src = '/api/snapshot?t=' + camTs;
-  document.getElementById('cam-label').textContent = 'Live · ' + new Date().toLocaleTimeString();
-}
+// The camera is a live MJPEG stream. If it drops (node restart, Wi-Fi
+// blip), reconnect it a few seconds later.
+const camImg = document.getElementById('cam-img');
+camImg.onerror = () => {
+  document.getElementById('cam-label').textContent = 'Reconnecting…';
+  setTimeout(() => { camImg.src = '/api/stream?t=' + Date.now(); }, 3000);
+};
+camImg.onload = () => { document.getElementById('cam-label').textContent = 'Live stream'; };
 
 async function tick() {
   await Promise.all([fetchLive(), fetchStatus(), fetchLogs()]);
-  refreshCamera();
 }
 
 tick();
