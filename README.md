@@ -141,7 +141,7 @@ camera, the Wi-Fi and the last log lines. The most common fixes:
 | `curl: (22) ... error: 404` | The URL was mistyped. Copy the line exactly; the full path is `.../farmlens/main/node/rpi/bootstrap.sh` (note `node/`) |
 | The Pi never joins the hotspot | Name exactly `FarmLens`, password `00000000`, 2.4 GHz, WPA2. Turn the hotspot off and on |
 | The app says "No node found" | Wait a minute after power on, tap **Find my node** again. Fallback: type the Pi's IP (from the hotspot's connected devices list) and port `8000` |
-| "Simulated frames" in the Camera tab | No camera found: power off, reseat the ribbon cable, then run `~/farmlens/node/rpi/setup.sh --no-apt` |
+| "Simulated frames" in the Camera tab | The node found no camera when it started. Run `rpicam-hello --list-cameras` on the Pi: if it says "No cameras available", power off, reseat the ribbon (contacts facing the HDMI ports on a Pi 4, fully pushed in at both ends), power on. The node looks for the camera at every start. `status.sh` shows the reason |
 
 More in the [setup guide's troubleshooting](docs/SETUP-GUIDE.md#8-troubleshooting).
 

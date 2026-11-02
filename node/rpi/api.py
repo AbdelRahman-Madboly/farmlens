@@ -120,6 +120,7 @@ def status():
         "esp32_connected": fusion.esp32_connected(),
         "camera_ready":    _camera.is_ready() if _camera else False,
         "camera_backend":  _camera.backend()  if _camera else "none",
+        "camera_note":     _camera.note()     if _camera else "",
         "auth_required":   bool(_api_key),
     }
 

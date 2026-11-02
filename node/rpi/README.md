@@ -96,7 +96,7 @@ Useful commands: `journalctl -u farmlens -f` (live log),
 | `AI_MODE` | `mock` | `mock` or `tflite` |
 | `MODEL_FILE` | `plant_disease.tflite` | Model file name inside `models/` |
 | `CONFIDENCE_THRESHOLD` | `0.25` | Below this top probability the result is `none` |
-| `CAMERA_BACKEND` | `mock` | `mock`, `picamera2` or `opencv`. `setup.sh` sets it from the camera it finds |
+| `CAMERA_BACKEND` | `mock` | `auto` (Pi camera, else USB webcam, else mock, decided at each start; `setup.sh` writes this), `mock`, `picamera2` or `opencv`. `/api/status` reports the one in use in `camera_backend` and why it fell back in `camera_note` |
 | `STREAM_FPS` | `10` | Frames per second of `/api/stream` |
 | `STREAM_QUALITY` | `70` | JPEG quality of `/api/stream` (1 to 100) |
 | `CYCLE_INTERVAL_S` | `30` | Seconds between cycles |
