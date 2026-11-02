@@ -21,6 +21,14 @@ All notable changes to this project are listed here. The format follows
 - README: app and web dashboard screenshots, a diagram of how the parts
   connect, a quick start and a hardware section with the case files.
 
+### Fixed
+
+- A Pi whose camera was not seen during setup stayed on simulated frames for
+  good. The node now detects the camera at every start (`CAMERA_BACKEND=auto`,
+  written by `setup.sh`), reports why it fell back (`camera_note` in
+  `/api/status`, shown by `status.sh`), and `setup.sh` turns on
+  `camera_auto_detect=1` in the boot config when it is off.
+
 ### Changed
 
 - README restyled to the shared layout: centred header with badges, why,
