@@ -5,9 +5,12 @@ import 'package:farmlens/providers/live_provider.dart';
 import 'package:farmlens/providers/log_provider.dart';
 import 'package:farmlens/providers/settings_provider.dart';
 import 'package:farmlens/screens/alerts_screen.dart';
+import 'package:farmlens/screens/camera_screen.dart';
 import 'package:farmlens/screens/connection_screen.dart';
 import 'package:farmlens/screens/log_detail_screen.dart';
 import 'package:farmlens/screens/settings_screen.dart';
+import 'package:farmlens/screens/splash_screen.dart';
+import 'package:farmlens/services/node_discovery.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +20,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'live_provider_test.dart' show live;
+import 'node_discovery_test.dart' show FakeInterface, network, status;
 
 /// Pumps [home] at '/' inside the app's providers and a router that also
 /// knows '/main' and '/connect', so screens that navigate can be tested.
@@ -65,7 +69,7 @@ void main() {
   testWidgets('settings about section credits VINEX only', (tester) async {
     await pumpScreen(tester, const SettingsScreen());
     await tester.scrollUntilVisible(find.byKey(const Key('about-version')), 200);
-    expect(find.text('FarmLens 0.1.0'), findsOneWidget);
+    expect(find.text('FarmLens 0.2.0'), findsOneWidget);
     expect(find.text('VINEX'), findsOneWidget);
     expect(find.textContaining('University'), findsNothing);
   });
@@ -146,4 +150,125 @@ void main() {
     expect(find.text('MAIN SCREEN'), findsNothing);
     expect(find.byType(SnackBar), findsOneWidget);
   });
+
+  testWidgets('find my node connects when the scan finds one node',
+      (tester) async {
+    final net = network({'192.168.43.57': status()});
+    final discovery = NodeDiscovery(
+      client: net,
+      interfaces: () async => [FakeInterface('swlan0', ['192.168.43.1'])],
+    );
+    final settings = SettingsProvider();
+    await pumpScreen(tester, ConnectionScreen(discovery: discovery),
+        connection: ConnectionProvider(client: net), settings: settings);
+    await tester.tap(find.byKey(const Key('find-node')));
+    await tester.pumpAndSettle();
+    expect(find.text('MAIN SCREEN'), findsOneWidget);
+    expect(settings.deviceBaseUrl, 'http://192.168.43.57:8000');
+  });
+
+  testWidgets('find my node lists several nodes to choose from',
+      (tester) async {
+    final net = network({
+      '192.168.43.20': status(id: 'FL-001'),
+      '192.168.43.30': status(id: 'FL-002'),
+    });
+    final discovery = NodeDiscovery(
+      client: net,
+      interfaces: () async => [FakeInterface('swlan0', ['192.168.43.1'])],
+    );
+    await pumpScreen(tester, ConnectionScreen(discovery: discovery),
+        connection: ConnectionProvider(client: net));
+    await tester.tap(find.byKey(const Key('find-node')));
+    await tester.pumpAndSettle();
+    expect(find.text('MAIN SCREEN'), findsNothing);
+    expect(find.byKey(const Key('found-192.168.43.30')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('found-192.168.43.30')));
+    await tester.pumpAndSettle();
+    expect(find.text('MAIN SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('find my node says so when nothing answers', (tester) async {
+    final discovery = NodeDiscovery(
+      client: network({}),
+      interfaces: () async => [FakeInterface('wlan0', ['192.168.1.10'])],
+    );
+    await pumpScreen(tester, ConnectionScreen(discovery: discovery));
+    await tester.tap(find.byKey(const Key('find-node')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('scan-empty')), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  testWidgets('splash finds the node at a new address and opens the dashboard',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'device_base_url': 'http://192.168.43.9:8000'});
+    final net = network({'192.168.43.77': status()});
+    final settings = SettingsProvider();
+    await settings.loadFromPrefs();
+    final discovery = NodeDiscovery(
+      client: net,
+      interfaces: () async => [FakeInterface('swlan0', ['192.168.43.1'])],
+    );
+    await pumpScreen(tester, SplashScreen(discovery: discovery),
+        connection: ConnectionProvider(client: net), settings: settings);
+    expect(find.text('MAIN SCREEN'), findsOneWidget);
+    expect(settings.deviceBaseUrl, 'http://192.168.43.77:8000');
+  });
+
+  testWidgets('splash goes to connect when no node is found', (tester) async {
+    final discovery = NodeDiscovery(
+      client: network({}),
+      interfaces: () async => [],
+    );
+    await pumpScreen(tester, SplashScreen(discovery: discovery));
+    expect(find.text('CONNECT SCREEN'), findsOneWidget);
+  });
+
+  testWidgets('camera screen plays the stream', (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'device_base_url': 'http://192.0.2.10:8000'});
+    final settings = SettingsProvider();
+    await settings.loadFromPrefs();
+    Uri? asked;
+    await pumpScreen(
+      tester,
+      CameraScreen(frames: (url) {
+        asked = url;
+        return Stream.fromIterable([tinyJpeg, tinyJpeg]);
+      }),
+      settings: settings,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(asked.toString(), 'http://192.0.2.10:8000/api/stream');
+    expect(find.byKey(const Key('camera-frame')), findsOneWidget);
+    expect(find.textContaining('Live stream'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('camera screen does not stream when its tab is hidden',
+      (tester) async {
+    SharedPreferences.setMockInitialValues(
+        {'device_base_url': 'http://192.0.2.10:8000'});
+    final settings = SettingsProvider();
+    await settings.loadFromPrefs();
+    var opened = 0;
+    await pumpScreen(
+      tester,
+      CameraScreen(
+          active: false,
+          frames: (_) {
+            opened++;
+            return const Stream.empty();
+          }),
+      settings: settings,
+    );
+    expect(opened, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
 }
+
+/// A real 4x4 grey JPEG, so Image.memory can decode it.
+final tinyJpeg = base64Decode(
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCAAEAAQDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDn6KKKAP/Z');

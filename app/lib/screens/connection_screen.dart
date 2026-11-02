@@ -4,12 +4,16 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/node_discovery.dart';
 import '../theme.dart';
 import '../constants.dart';
 import '../utils/validators.dart';
 
 class ConnectionScreen extends StatefulWidget {
-  const ConnectionScreen({super.key});
+  const ConnectionScreen({super.key, this.discovery});
+
+  /// Injected in tests.
+  final NodeDiscovery? discovery;
 
   @override
   State<ConnectionScreen> createState() => _ConnectionScreenState();
@@ -23,6 +27,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   final _apiKeyController = TextEditingController();
   List<String> _recentUrls = [];
   bool _isConnecting = false;
+
+  bool _isScanning = false;
+  bool _scanDone = false;
+  double _scanProgress = 0;
+  final List<DiscoveredNode> _found = [];
 
   @override
   void initState() {
@@ -81,12 +90,55 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   String? _validatePort(String? value) => validatePort(value);
 
-  /// Fills the form with the stable mDNS hostname - no IP hunting required
-  void _useHostname() {
+  /// Scans the phone's Wi-Fi or hotspot network for nodes. Connects straight
+  /// away when exactly one is found.
+  Future<void> _findNodes() async {
     setState(() {
-      _ipController.text = 'farmlens.local';
-      _portController.text = FarmLensConstants.defaultDevicePort;
+      _isScanning = true;
+      _scanDone = false;
+      _scanProgress = 0;
+      _found.clear();
     });
+    final saved = Uri.tryParse(
+            Provider.of<SettingsProvider>(context, listen: false).deviceBaseUrl)
+        ?.host;
+    final discovery = widget.discovery ?? NodeDiscovery();
+    final nodes = await discovery.scan(
+      preferredHosts: [saved ?? '', FarmLensConstants.defaultHostname],
+      onFound: (node) {
+        if (!mounted) return;
+        setState(() {
+          _found.removeWhere((n) => n.nodeId == node.nodeId);
+          _found.add(node);
+        });
+      },
+      onProgress: (checked, total) {
+        if (!mounted || total == 0) return;
+        setState(() => _scanProgress = checked / total);
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _isScanning = false;
+      _scanDone = true;
+    });
+    if (nodes.length == 1) {
+      await _connectTo(nodes.first.baseUrl);
+    } else if (nodes.isEmpty) {
+      _showError('No node found. Check the hotspot is named FarmLens with '
+          'password 00000000 and the Pi is powered on, then try again.');
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: FarmLensColors.alert,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   Future<void> _handleConnect() async {
@@ -94,8 +146,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     final ip = _ipController.text.trim();
     final port = _portController.text.trim();
-    final baseUrl = 'http://$ip:$port';
+    await _connectTo('http://$ip:$port');
+  }
 
+  Future<void> _connectTo(String baseUrl) async {
+    final ip = Uri.tryParse(baseUrl)?.host ?? baseUrl;
     setState(() => _isConnecting = true);
 
     final connProvider =
@@ -127,15 +182,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         message =
             'Could not reach $ip. Check the node is on the same network, or use its IP address';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: FarmLensColors.alert,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      _showError(message);
     }
   }
 
@@ -211,54 +258,35 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   ),
                   const SizedBox(height: 32),
 
-                  // ── mDNS Quick-Connect Banner ─────────────────
-                  GestureDetector(
-                    onTap: _useHostname,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: FarmLensColors.primary.withAlpha(20),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: FarmLensColors.primary.withAlpha(60),
-                            width: 1),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.wifi_find,
-                              size: 18, color: FarmLensColors.primary),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Use farmlens.local  (recommended)',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: FarmLensColors.primary,
-                                  ),
-                                ),
-                                SizedBox(height: 2),
-                                Text(
-                                  'Connects by hostname - works even when the IP changes',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: FarmLensColors.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(Icons.arrow_forward_ios,
-                              size: 12, color: FarmLensColors.primary),
-                        ],
+                  // ── Find my node ──────────────────────────────
+                  _FindNodeCard(
+                    scanning: _isScanning,
+                    progress: _scanProgress,
+                    enabled: !_isScanning && !_isConnecting,
+                    onTap: _findNodes,
+                  ),
+                  if (_found.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    ..._found.map((n) => _FoundNodeTile(
+                          node: n,
+                          onTap: _isConnecting
+                              ? null
+                              : () => _connectTo(n.baseUrl),
+                        )),
+                  ] else if (_scanDone) ...[
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Nothing found. Turn on the phone hotspot named FarmLens '
+                      '(password 00000000), power the Pi and wait about a '
+                      'minute for it to join.',
+                      key: Key('scan-empty'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: FarmLensColors.textSecondary,
                       ),
                     ),
-                  ),
+                  ],
 
                   const SizedBox(height: 12),
 
@@ -312,7 +340,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                             color: FarmLensColors.textPrimary,
                           ),
                           decoration:
-                              _fieldDecoration('Node IP address  or  farmlens.local'),
+                              _fieldDecoration('Node IP address  or  ${FarmLensConstants.defaultHostname}'),
                         ),
                         const SizedBox(height: 12),
                         const Text(
@@ -451,6 +479,169 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   const SizedBox(height: 32),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Primary action: scan the network for a node.
+class _FindNodeCard extends StatelessWidget {
+  final bool scanning;
+  final double progress;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _FindNodeCard({
+    required this.scanning,
+    required this.progress,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: FarmLensColors.primary.withAlpha(20),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: const Key('find-node'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: FarmLensColors.primary.withAlpha(60), width: 1),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.wifi_find,
+                      size: 18, color: FarmLensColors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          scanning ? 'Searching…' : 'Find my node  (recommended)',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: FarmLensColors.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Looks on this phone\'s Wi-Fi and hotspot',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: FarmLensColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (scanning)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: FarmLensColors.primary),
+                    )
+                  else
+                    const Icon(Icons.arrow_forward_ios,
+                        size: 12, color: FarmLensColors.primary),
+                ],
+              ),
+              if (scanning) ...[
+                const SizedBox(height: 10),
+                LinearProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                  minHeight: 3,
+                  color: FarmLensColors.primary,
+                  backgroundColor: FarmLensColors.primary.withAlpha(30),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One node found by the scan; tap to connect.
+class _FoundNodeTile extends StatelessWidget {
+  final DiscoveredNode node;
+  final VoidCallback? onTap;
+
+  const _FoundNodeTile({required this.node, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final title = node.nodeName.isNotEmpty && node.nodeName != node.nodeId
+        ? '${node.nodeId} · ${node.nodeName}'
+        : node.nodeId;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: FarmLensColors.card,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          key: Key('found-${node.host}'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: FarmLensColors.border, width: 0.5),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.memory,
+                    size: 18, color: FarmLensColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: FarmLensColors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${node.host}:${node.port}'
+                        '${node.cameraBackend.isNotEmpty ? '  ·  camera: ${node.cameraBackend}' : ''}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: FarmLensColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Text(
+                  'Connect',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: FarmLensColors.primary,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
 
     <application
-        android:label="farmlens_app"
+        android:label="FarmLens"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

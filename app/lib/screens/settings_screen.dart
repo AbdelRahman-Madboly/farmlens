@@ -387,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const _SettingsCard(
                       children: [
                         Text(
-                          'FarmLens 0.1.0',
+                          'FarmLens 0.2.0',
                           key: Key('about-version'),
                           style: TextStyle(
                             fontSize: 14,
