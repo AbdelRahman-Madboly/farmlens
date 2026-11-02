@@ -62,7 +62,9 @@ hotspot is in the [main README](../../README.md#demo-with-a-raspberry-pi-and-a-p
 5. sets the hostname to `farmlens`, so the node answers at `farmlens.local`
 6. saves the phone hotspot as the NetworkManager connection
    `farmlens-hotspot` with priority 100, so the Pi joins it at every boot.
-   The default hotspot is name `FarmLens`, password `00000000`
+   The default hotspot is name `FarmLens`, password `00000000`. A
+   `farmlens-wifi.timer` (from the next boot) moves the Pi to the hotspot within
+   about 30 s whenever it is in range and the Pi is on another network
 7. installs and starts the `farmlens` systemd service
 
 | Option | Meaning |
