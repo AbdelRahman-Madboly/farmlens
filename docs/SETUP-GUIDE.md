@@ -35,8 +35,8 @@ flowchart LR
 
 ## 2. Prepare the SD card
 
-The goal is to start the Pi already joined to the phone hotspot, with SSH on,
-so you never need a screen or keyboard for it.
+The Pi installs over your normal Wi-Fi (home or office, with internet), then
+switches to the phone hotspot after a reboot.
 
 1. Set the **phone hotspot** first (Settings, Hotspot and tethering):
 
@@ -48,6 +48,7 @@ so you never need a screen or keyboard for it.
    | Band | 2.4 GHz |
 
    > The name and password are public. Turn the hotspot off after a demo.
+   > Leave the hotspot off for now; you turn it on in step 4.
 
 2. On the computer, install **Raspberry Pi Imager** from
    <https://www.raspberrypi.com/software/> and open it.
@@ -60,7 +61,7 @@ so you never need a screen or keyboard for it.
    |---|---|
    | Hostname | `farmlens` |
    | Username and password | Any, for example `pi` and a password you will remember |
-   | Configure wireless LAN | SSID `FarmLens`, password `00000000`, Wireless LAN country `EG` (or yours) |
+   | Configure wireless LAN | Your normal Wi-Fi name and password, Wireless LAN country `EG` (or yours) |
    | Locale | Your time zone and keyboard |
    | Services tab | Enable SSH, "Use password authentication" |
 
@@ -76,11 +77,8 @@ the setup script in step 4 adds the hotspot itself.
 2. Push the ribbon cable in fully, silver contacts facing the HDMI ports, and
    press the latch down. Do the same on the camera board if the cable came
    loose there.
-3. Put the SD card in the Pi. Turn on the phone hotspot (with mobile data on:
-   the Pi downloads packages through it). Plug in the power.
-4. Wait two to three minutes on the first boot. The phone's hotspot screen
-   then lists a connected device called `farmlens`. Tap it to see its IP
-   address if you need it.
+3. Put the SD card in the Pi and plug in the power. Wait two to three minutes
+   on the first boot; the Pi joins your normal Wi-Fi.
 
 ## 4. Install the FarmLens node on the Pi
 
@@ -88,32 +86,44 @@ Open a terminal on the Pi, by any of these routes:
 
 | Route | How |
 |---|---|
-| Laptop joined to the same `FarmLens` hotspot | `ssh pi@farmlens.local` (Windows, macOS and Linux all have `ssh`). If the name does not resolve, use the IP from the phone's connected devices list: `ssh pi@192.168.x.x` |
-| The phone itself | An SSH app such as Termux (`pkg install openssh`, then `ssh pi@<IP>`), using the IP from the connected devices list |
-| Screen and keyboard on the Pi | Log in on the Pi directly |
+| Screen and keyboard on the Pi | Log in on the Pi directly. With no Wi-Fi set yet, run `sudo nmtui` and join your normal Wi-Fi first |
+| Laptop on the same normal Wi-Fi | `ssh pi@farmlens.local` (Windows, macOS and Linux all have `ssh`). If the name does not resolve, use the Pi's IP from your router's device list: `ssh pi@192.168.x.x` |
 
 Replace `pi` with the username you chose. Then paste this line and press Enter:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AbdelRahman-Madboly/farmlens/main/node/rpi/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AbdelRahman-Madboly/farmlens/main/install.sh | bash
 ```
+
+Copy it exactly. If you get `curl: (22) ... error: 404`, the URL was mistyped;
+the full form is
+`curl -fsSL https://raw.githubusercontent.com/AbdelRahman-Madboly/farmlens/main/node/rpi/bootstrap.sh | bash`
+(note `node/rpi/`).
 
 It takes five to ten minutes. It:
 
-- downloads the project to `~/farmlens`
+- creates `~/farmlens` and downloads the project into it
 - installs the packages and the camera libraries
 - finds the camera and writes the settings (`node/rpi/.env`)
 - names the Pi `farmlens` and saves the `FarmLens` hotspot with top priority,
   so the Pi joins it on every boot
 - installs the `farmlens` service, which starts the node on every boot
 
-It ends with **FarmLens node is running** and the addresses to use. Then:
+The Pi stays on the normal Wi-Fi while it installs, so an SSH session is not
+cut. It ends with **FarmLens node is running** and the next step.
+
+**Switch to the hotspot:** turn on the phone hotspot (`FarmLens` /
+`00000000`), then on the Pi run:
 
 ```bash
 sudo reboot
 ```
 
-Rebooting once makes sure the camera permissions and hostname are applied.
+After about a minute the phone's hotspot screen lists `farmlens` as a
+connected device. The Pi prefers the hotspot over every other network; if it
+ever starts on the normal Wi-Fi first, it moves to the hotspot by itself
+within about 30 seconds of the hotspot coming on. The reboot also applies the
+camera permissions and the new hostname.
 
 ## 5. Install the app and connect
 
@@ -148,7 +158,8 @@ it even when its address changed.
 
 ## 7. Update
 
-Run the setup command from step 4 again, or on the Pi:
+Run the setup command from step 4 again (the Pi needs internet: the normal
+Wi-Fi, or the hotspot with mobile data on), or on the Pi:
 
 ```bash
 ~/farmlens/node/rpi/setup.sh
@@ -173,6 +184,7 @@ Wi-Fi and the last log lines in one screen:
 
 | Problem | What to do |
 |---|---|
+| `curl: (22) The requested URL returned error: 404` | The command was mistyped. Copy it exactly from step 4; the path must include `node/rpi/` (or use the short `.../main/install.sh`) |
 | `farmlens` never appears in the hotspot's connected devices | Check the hotspot is exactly `FarmLens` / `00000000`, 2.4 GHz, WPA2. Turn the hotspot off and on. If you used Imager, check the Wi-Fi country was set. With a screen on the Pi, `nmcli device wifi list` shows what it can see |
 | The app says "No node found" | Wait a minute after power on and tap **Find my node** again. The phone running the app must be the one sharing the hotspot (or on the same Wi-Fi as the Pi). Fallback: type the Pi's IP from the connected devices list on the Connect screen, port `8000` |
 | `ssh pi@farmlens.local` does not resolve | Use the IP from the hotspot's connected devices list. Before setup has run, the name is whatever you set in Imager (`raspberrypi` by default) |
