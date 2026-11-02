@@ -348,6 +348,7 @@ cat <<DONE
 
   The node starts by itself on every boot and joins the phone hotspot when it is on.
   Update later    : run this same script again
+  Health check    : $PROJ_DIR/status.sh
   Live logs       : journalctl -u $SERVICE -f
   Restart         : sudo systemctl restart $SERVICE
 

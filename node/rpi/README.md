@@ -76,6 +76,8 @@ hotspot is in the [main README](../../README.md#demo-with-a-raspberry-pi-and-a-p
 | `--camera MODE` | `auto` (default), `picamera2`, `opencv` or `mock` |
 | `--no-pull`, `--no-apt` | Skip `git pull` or apt, for quick re-runs |
 
+Health check: `./status.sh` shows the service, camera, Wi-Fi and last log lines on one screen.
+
 Useful commands: `journalctl -u farmlens -f` (live log),
 `sudo systemctl restart farmlens`, `nmcli connection show` (saved networks).
 
@@ -126,3 +128,4 @@ No model ships with this repository. To try one:
 | `setup.sh` | Raspberry Pi install and update |
 | `bootstrap.sh` | Clones or updates the repo, then runs `setup.sh` |
 | `install.sh` | Old name, runs `setup.sh` |
+| `status.sh` | Health check: service, API, camera, Wi-Fi, log |

@@ -282,7 +282,8 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
                 border-radius: 10px; padding: 8px 14px; margin-bottom: 14px;
                 color: #9a3412; font-size: .8rem; display: none; }
   .camera-wrap { background: #111; border-radius: 14px; overflow: hidden;
-                 margin-bottom: 14px; aspect-ratio: 4/3; position: relative; }
+                 margin-bottom: 14px; aspect-ratio: 4/3; position: relative;
+                 max-width: 640px; }
   .camera-wrap img { width: 100%; height: 100%; object-fit: cover; }
   .cam-overlay { position: absolute; top: 8px; left: 8px;
                  background: rgba(0,0,0,.5); color: #fff;
