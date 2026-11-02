@@ -18,13 +18,6 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  static const List<Widget> _screens = [
-    DashboardScreen(),
-    CameraScreen(),      // ← NEW: live RPi camera feed
-    AlertsScreen(),
-    LogScreen(),
-    SettingsScreen(),
-  ];
 
   void _onTabTapped(int index) {
     setState(() => _currentIndex = index);
@@ -36,7 +29,14 @@ class _MainShellState extends State<MainShell> {
       backgroundColor: FarmLensColors.background,
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: [
+          const DashboardScreen(),
+          // The stream runs only while the Camera tab is showing.
+          CameraScreen(active: _currentIndex == 1),
+          const AlertsScreen(),
+          const LogScreen(),
+          const SettingsScreen(),
+        ],
       ),
       bottomNavigationBar: Consumer<LiveProvider>(
         builder: (context, liveProvider, _) {

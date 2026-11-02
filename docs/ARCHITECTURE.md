@@ -75,12 +75,13 @@ Alert           = Ccombined > theta                    default theta = 0.5
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/` | Web dashboard |
-| GET | `/api/status` | Node id, `ai_mode`, `sensor_mode`, `simulated`, uptime, cycle count, ESP32 and camera state, `auth_required` |
+| GET | `/api/status` | `service: farmlens` (used by app discovery), node id and name, version, `stream`, `ai_mode`, `sensor_mode`, `simulated`, uptime, cycle count, ESP32 and camera state, `auth_required` |
 | POST | `/api/sensor` | Sensor reading from the ESP32. Validated; needs `X-API-Key` if `API_KEY` is set |
 | GET | `/api/live` | Latest cycle (see `schema.CycleResult`). Before the first cycle: current sensor values and `detection_class: "none"` |
 | GET | `/api/logs?limit=50` | Cycle history, newest first, limit clamped to 1-200 |
 | GET | `/api/image/{cycle_id}` | JPEG for a cycle; 400 for a malformed id, 404 if missing |
 | GET | `/api/snapshot` | Fresh camera frame as JPEG |
+| GET | `/api/stream` | Live MJPEG stream (`multipart/x-mixed-replace`), `STREAM_FPS` frames per second (default 10). Optional `fps` and `frames` query parameters |
 | GET | `/api/settings` | Fusion weights and crop type |
 | POST | `/api/settings` | Partial update of `w1`, `w2`, `theta` (0-1) and `crop_type`. Needs `X-API-Key` if set |
 

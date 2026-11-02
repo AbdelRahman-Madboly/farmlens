@@ -1,65 +1,188 @@
 import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../providers/connection_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/mjpeg_stream.dart';
 import '../theme.dart';
 
+/// Live camera view. Plays the node's MJPEG stream (/api/stream) and falls
+/// back to a snapshot every 5 s for nodes without one. The stream only runs
+/// while the tab is [active] and the app is in the foreground, so it does not
+/// use the hotspot's bandwidth in the background.
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  const CameraScreen({super.key, this.active = true, this.frames});
+
+  final bool active;
+
+  /// Injected in tests in place of the network stream.
+  final Stream<Uint8List> Function(Uri url)? frames;
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
-  static const _refreshInterval = Duration(seconds: 5);
+enum _FeedMode { stream, snapshot }
 
-  String _refreshKey = '';
-  int _countdown = 5;
-  bool _lastLoadOk = false;
-  DateTime? _lastLoadTime;
-  Timer? _refreshTimer;
-  Timer? _countdownTimer;
+class _CameraScreenState extends State<CameraScreen>
+    with WidgetsBindingObserver {
+  static const _snapshotInterval = Duration(seconds: 5);
+  static const _retryDelay = Duration(seconds: 3);
+
+  _FeedMode _mode = _FeedMode.stream;
+  StreamSubscription<Uint8List>? _sub;
+  Timer? _retryTimer;
+  Timer? _snapshotTimer;
+  bool _foreground = true;
+
+  Uint8List? _frame;
+  DateTime? _lastFrameTime;
+  int _streamFailures = 0;
+  bool _gotFrameThisStream = false;
+
+  // Frames per second, measured over the last second.
+  int _framesThisSecond = 0;
+  int _fps = 0;
+  Timer? _fpsTimer;
+
+  String _snapshotKey = '';
+
+  bool get _shouldRun => widget.active && _foreground;
 
   @override
   void initState() {
     super.initState();
-    _doRefresh();
-
-    // Auto-refresh image every 5 seconds
-    _refreshTimer = Timer.periodic(_refreshInterval, (_) => _doRefresh());
-
-    // Countdown display every second
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    WidgetsBinding.instance.addObserver(this);
+    _fpsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
-        _countdown = (_countdown - 1).clamp(0, 5);
+        _fps = _framesThisSecond;
+        _framesThisSecond = 0;
       });
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _sync());
   }
 
-  void _doRefresh() {
+  @override
+  void didUpdateWidget(CameraScreen old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) _sync();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _sync();
+  }
+
+  String get _baseUrl =>
+      Provider.of<SettingsProvider>(context, listen: false).deviceBaseUrl;
+
+  /// Starts or stops the feed to match [_shouldRun].
+  void _sync() {
     if (!mounted) return;
-    setState(() {
-      _refreshKey = DateTime.now().millisecondsSinceEpoch.toString();
-      _countdown  = 5;
-    });
+    _stopFeed();
+    if (!_shouldRun || _baseUrl.isEmpty) return;
+    if (_mode == _FeedMode.stream) {
+      _startStream();
+    } else {
+      _refreshSnapshot();
+      _snapshotTimer =
+          Timer.periodic(_snapshotInterval, (_) => _refreshSnapshot());
+    }
   }
 
-  String _snapshotUrl(String baseUrl) =>
-      '$baseUrl/api/snapshot?t=$_refreshKey';
+  void _startStream() {
+    final url = Uri.parse('$_baseUrl/api/stream');
+    final source = widget.frames?.call(url) ?? mjpegFrames(url);
+    _gotFrameThisStream = false;
+    _sub = source.listen(
+      (frame) {
+        if (!mounted) return;
+        _streamFailures = 0;
+        _gotFrameThisStream = true;
+        _framesThisSecond++;
+        setState(() {
+          _frame = frame;
+          _lastFrameTime = DateTime.now();
+        });
+      },
+      onError: (_) => _onStreamEnded(),
+      onDone: _onStreamEnded,
+      cancelOnError: true,
+    );
+  }
+
+  void _onStreamEnded() {
+    _sub = null;
+    if (!mounted || !_shouldRun) return;
+    if (!_gotFrameThisStream) _streamFailures++;
+    // Three failures in a row without a single frame: an older node with no
+    // /api/stream. Use snapshots instead.
+    if (_streamFailures >= 3) {
+      setState(() => _mode = _FeedMode.snapshot);
+      _sync();
+      return;
+    }
+    setState(() {});
+    _retryTimer = Timer(_retryDelay, _sync);
+  }
+
+  void _refreshSnapshot() {
+    if (!mounted) return;
+    setState(() =>
+        _snapshotKey = DateTime.now().millisecondsSinceEpoch.toString());
+  }
+
+  void _stopFeed() {
+    _sub?.cancel();
+    _sub = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _snapshotTimer?.cancel();
+    _snapshotTimer = null;
+  }
+
+  void _restart() {
+    _streamFailures = 0;
+    setState(() => _mode = _FeedMode.stream);
+    _sync();
+  }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
-    _countdownTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _stopFeed();
+    _fpsTimer?.cancel();
     super.dispose();
   }
+
+  bool get _live =>
+      _lastFrameTime != null &&
+      DateTime.now().difference(_lastFrameTime!) < const Duration(seconds: 10);
 
   @override
   Widget build(BuildContext context) {
     final baseUrl =
         Provider.of<SettingsProvider>(context, listen: false).deviceBaseUrl;
+    final status = context.watch<ConnectionProvider>().nodeStatus;
+    final nodeId = status?.nodeId.isNotEmpty == true ? status!.nodeId : 'Node';
+    final backend = status?.cameraBackend ?? '';
+    final streaming = _mode == _FeedMode.stream;
+
+    final statusText = !_live
+        ? '$nodeId · Connecting…'
+        : streaming
+            ? '$nodeId · Live stream'
+            : '$nodeId · Snapshot view';
+    final rightText = !_live
+        ? ''
+        : streaming
+            ? '$_fps fps'
+            : 'every 5 s';
 
     return Scaffold(
       backgroundColor: FarmLensColors.background,
@@ -80,8 +203,8 @@ class _CameraScreenState extends State<CameraScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: FarmLensColors.textSecondary),
-            onPressed: _doRefresh,
-            tooltip: 'Refresh now',
+            onPressed: _restart,
+            tooltip: 'Reconnect',
           ),
         ],
       ),
@@ -100,19 +223,19 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
               child: Row(
                 children: [
-                  // Live dot
                   Container(
                     width: 8, height: 8,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: _lastLoadOk
+                      color: _live
                           ? FarmLensColors.primary
                           : FarmLensColors.textSecondary,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    _lastLoadOk ? 'FL-001 · Live view' : 'FL-001 · Connecting…',
+                    statusText,
+                    key: const Key('camera-status'),
                     style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
@@ -120,7 +243,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
                   const Spacer(),
                   Text(
-                    'next in ${_countdown}s',
+                    rightText,
                     style: const TextStyle(
                         fontSize: 12, color: FarmLensColors.textSecondary),
                   ),
@@ -137,38 +260,20 @@ class _CameraScreenState extends State<CameraScreen> {
                 aspectRatio: 4 / 3,
                 child: baseUrl.isEmpty
                     ? _NoConnection()
-                    : Image.network(
-                        _snapshotUrl(baseUrl),
-                        key: ValueKey(_refreshKey),
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, progress) {
-                          if (progress == null) {
-                            // Loaded successfully
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!mounted) return;
-                              setState(() {
-                                _lastLoadOk   = true;
-                                _lastLoadTime = DateTime.now();
-                              });
-                            });
-                            return child;
-                          }
-                          return Container(
-                            color: const Color(0xFFF0F0EC),
-                            child: const Center(
-                              child: CircularProgressIndicator(
-                                  color: FarmLensColors.primary, strokeWidth: 2),
-                            ),
-                          );
-                        },
-                        errorBuilder: (context, error, stack) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (!mounted) return;
-                            setState(() => _lastLoadOk = false);
-                          });
-                          return _NoSignal();
-                        },
-                      ),
+                    : !_shouldRun && _frame == null
+                        ? const _Paused()
+                        : streaming
+                        ? (_frame == null
+                            ? (_sub == null && _streamFailures > 0
+                                ? _NoSignal()
+                                : const _Loading())
+                            : Image.memory(
+                                _frame!,
+                                key: const Key('camera-frame'),
+                                fit: BoxFit.cover,
+                                gaplessPlayback: true,
+                              ))
+                        : _snapshotImage(baseUrl),
               ),
             ),
 
@@ -189,13 +294,22 @@ class _CameraScreenState extends State<CameraScreen> {
                       style: TextStyle(
                           fontSize: 11, color: FarmLensColors.textSecondary)),
                   const SizedBox(height: 8),
-                  const _InfoRow(label: 'Source',   value: 'Node /api/snapshot'),
-                  const _InfoRow(label: 'Mode',     value: 'MOCK: simulated frame and placeholder box, not a detection'),
-                  const _InfoRow(label: 'Refresh',  value: 'Every 5 seconds'),
+                  _InfoRow(
+                      label: 'Source',
+                      value: streaming
+                          ? 'Node /api/stream (live MJPEG)'
+                          : 'Node /api/snapshot'),
+                  _InfoRow(
+                      label: 'Camera',
+                      value: backend == 'mock'
+                          ? 'Simulated frames, not a real camera'
+                          : backend.isEmpty
+                              ? '-'
+                              : backend),
                   _InfoRow(
                     label: 'Last frame',
-                    value: _lastLoadTime != null
-                        ? '${DateTime.now().difference(_lastLoadTime!).inSeconds}s ago'
+                    value: _lastFrameTime != null
+                        ? '${DateTime.now().difference(_lastFrameTime!).inSeconds}s ago'
                         : '-',
                   ),
                 ],
@@ -203,6 +317,53 @@ class _CameraScreenState extends State<CameraScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _snapshotImage(String baseUrl) {
+    return Image.network(
+      '$baseUrl/api/snapshot?t=$_snapshotKey',
+      key: ValueKey(_snapshotKey),
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, _) {
+        if (frame != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _lastFrameTime = DateTime.now());
+          });
+        }
+        return child;
+      },
+      errorBuilder: (context, error, stack) => _NoSignal(),
+    );
+  }
+}
+
+class _Paused extends StatelessWidget {
+  const _Paused();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1A1A1A),
+      child: const Center(
+        child: Icon(Icons.pause_circle_outline, size: 48, color: Colors.white38),
+      ),
+    );
+  }
+}
+
+class _Loading extends StatelessWidget {
+  const _Loading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: const Color(0xFF1A1A1A),
+      child: const Center(
+        child: CircularProgressIndicator(
+            color: FarmLensColors.primary, strokeWidth: 2),
       ),
     );
   }
@@ -224,7 +385,7 @@ class _NoConnection extends StatelessWidget {
             Text('Not connected',
                 style: TextStyle(fontSize: 14, color: Colors.white54)),
             SizedBox(height: 4),
-            Text('Connect to RPi on port 8000',
+            Text('Connect to the node first',
                 style: TextStyle(fontSize: 12, color: Colors.white38)),
           ],
         ),
@@ -249,7 +410,7 @@ class _NoSignal extends StatelessWidget {
             Text('No camera signal',
                 style: TextStyle(fontSize: 14, color: Colors.white54)),
             SizedBox(height: 4),
-            Text('Check RPi server is running',
+            Text('Check the node is on, retrying…',
                 style: TextStyle(fontSize: 12, color: Colors.white38)),
           ],
         ),

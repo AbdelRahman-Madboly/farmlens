@@ -3,6 +3,9 @@ class FarmLensConstants {
 
   /// Port the node's FastAPI server listens on (node/rpi, API_PORT).
   static const String defaultDevicePort = '8000';
+
+  /// mDNS name the Pi setup script gives the node (node/rpi/setup.sh).
+  static const String defaultHostname = 'farmlens.local';
   static const String nodeId = 'FL-001';
   static const int pollIntervalSeconds = 5;
   static const int apiTimeoutSeconds = 8;

@@ -8,6 +8,7 @@ Three backends, switchable via CAMERA_BACKEND in .env:
 
 To switch camera: edit CAMERA_BACKEND in .env, restart service.
 """
+import threading
 import time
 import logging
 import numpy as np
@@ -42,6 +43,9 @@ class CameraCapture:
         self._cam_cv  = None   # OpenCV VideoCapture instance
         self._backend = (backend or CAMERA_BACKEND).lower()
         self._frame_n = 0
+        # The cycle loop, the snapshot endpoint and every open stream share one
+        # camera, so captures are serialised.
+        self._lock    = threading.Lock()
 
         if self._backend == "mock":
             log.info("Camera: MOCK backend, synthetic frames")
@@ -55,8 +59,14 @@ class CameraCapture:
     def _init_picamera2(self):
         try:
             self._cam_pi = Picamera2()
-            cfg = self._cam_pi.create_still_configuration(
-                main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
+            # A video configuration keeps the sensor streaming, so each
+            # capture_array() returns in one frame time and the MJPEG stream
+            # stays smooth. picamera2 names formats by their little-endian
+            # word order: "BGR888" gives arrays in [R, G, B] order, which is
+            # what the rest of this module expects ("RGB888" would swap red
+            # and blue).
+            cfg = self._cam_pi.create_video_configuration(
+                main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "BGR888"}
             )
             self._cam_pi.configure(cfg)
             self._cam_pi.start()
@@ -85,7 +95,11 @@ class CameraCapture:
     # ── Capture ──────────────────────────────────────────────────────────────
 
     def capture(self) -> np.ndarray:
-        """Return H×W×3 RGB array. Never raises."""
+        """Return H×W×3 RGB array. Never raises. Safe to call from any thread."""
+        with self._lock:
+            return self._capture_locked()
+
+    def _capture_locked(self) -> np.ndarray:
         if self._backend == "mock":
             return self._mock_frame()
 
@@ -139,6 +153,9 @@ class CameraCapture:
             cv2.circle(frame, (cx, cy), int(rng.integers(6, 16)), (120, 95, 40), -1)
         cv2.putText(frame, "SIMULATED FRAME", (int(w * 0.30), h - 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (230, 230, 230), 1)
+        # A running clock, so a live stream visibly moves.
+        cv2.putText(frame, time.strftime("%H:%M:%S"), (int(w * 0.40), h - 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (200, 200, 200), 1)
         return frame
 
     # ── Placeholder ──────────────────────────────────────────────────────────
