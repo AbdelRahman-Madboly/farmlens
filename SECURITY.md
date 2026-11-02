@@ -8,10 +8,11 @@ FarmLens is a **LAN-only prototype**. Do not expose a node to the internet.
 |---|---|
 | Transport | Plain HTTP. No TLS. Anyone on the network can read the traffic, including the API key. |
 | Write endpoints (`POST /api/sensor`, `POST /api/settings`) | Open by default. Set `API_KEY` in `node/rpi/.env` to require the header `X-API-Key`. The key is compared in constant time. |
-| Read endpoints (`/api/live`, `/api/logs`, `/api/image/*`, `/api/snapshot`, `/`) | Always open. Anyone who can reach the node can see readings and camera frames. |
+| Read endpoints (`/api/live`, `/api/logs`, `/api/image/*`, `/api/snapshot`, `/api/stream`, `/`) | Always open. Anyone who can reach the node can see readings and camera frames. |
 | Bind address | `127.0.0.1` by default. `.env.example` sets `0.0.0.0` so phones on the LAN can connect. |
 | Input validation | Request bodies are validated (types and ranges); bad input gets a 422. Image ids are restricted to `[A-Za-z0-9_-]`. |
 | CORS | Any origin may call the API, so the dashboard and app work from any address. |
+| Phone hotspot password | The demo default (`FarmLens` / `00000000`) is public in the README and `setup.sh`, so anyone nearby who reads it can join the hotspot while it is on. Turn the hotspot off after a demo, or pass your own with `--ssid` and `--password`; a custom password is stored only by NetworkManager on the Pi (`/etc/NetworkManager/system-connections/`, root only), never in the repository. |
 | Secrets in git | `node/rpi/.env` and `node/firmware/include/secrets.h` are gitignored. Only `.example` files are committed. |
 
 ## Using the API key

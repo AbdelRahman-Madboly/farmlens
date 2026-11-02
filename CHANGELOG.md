@@ -4,6 +4,40 @@ All notable changes to this project are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-02
+
+Makes the Pi and the phone app work together for a field demo over a phone
+hotspot.
+
+### Added
+
+- `node/rpi/setup.sh`: one script that installs and updates the node. It pulls
+  the latest code, installs packages, moves settings from an older install,
+  finds the camera, names the Pi `farmlens`, saves the phone hotspot so the Pi
+  joins it at every boot, and installs a service that starts on boot.
+- `node/rpi/bootstrap.sh`: one command that clones or updates the repo on the
+  Pi and runs `setup.sh`.
+- `GET /api/stream`: live MJPEG camera stream. The web dashboard uses it.
+- `/api/status` now sends `service`, `node_name`, `version` and `stream`.
+- App: "Find my node" scans the phone's Wi-Fi and hotspot network and connects
+  to the node. On start the app finds the node again if its address changed.
+- App: the Camera tab plays the live stream, reconnects after a drop, falls
+  back to snapshots for older nodes, and pauses when the tab is not shown.
+- `.github/workflows/release-apk.yml`: pushing a `v*` tag builds the APK and
+  attaches `farmlens.apk` to a GitHub release.
+
+### Fixed
+
+- Pi camera module frames had red and blue swapped (picamera2 `RGB888` is
+  stored as BGR). The camera now uses `BGR888`, which gives RGB arrays.
+- Camera captures are serialised, so the cycle loop, snapshots and streams do
+  not use the camera at the same time.
+
+### Changed
+
+- `install.sh` now runs `setup.sh`.
+- Android app label is "FarmLens".
+
 ## [0.1.0] - 2026-11-01
 
 First public prototype. Runs end to end on simulated data. No trained model,

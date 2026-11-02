@@ -6,23 +6,119 @@ an ESP32 firmware that sends sensor readings to it, and a Flutter app that
 shows the result.
 
 **Status: prototype / MVP on simulated data.** There is no trained model, no
-dataset, no assembled hardware and no field measurement. Every number the
-system shows today comes from simulators in this repository.
+dataset and no field measurement. The camera can be real (Pi camera module or
+USB webcam); sensor readings and the disease score still come from
+simulators in this repository.
+
+**Download the Android app:**
+[farmlens.apk](https://github.com/AbdelRahman-Madboly/farmlens/releases/latest/download/farmlens.apk)
+(all versions on the [releases page](https://github.com/AbdelRahman-Madboly/farmlens/releases)).
+
+## Demo with a Raspberry Pi and a phone hotspot
+
+The Pi joins the phone's hotspot, and the app on the same phone finds it and
+shows the live camera. Nothing else is needed: no router, no laptop, no IP
+addresses to type.
+
+### One-time setup
+
+**1. Install the app on the Android phone.** Open
+[farmlens.apk](https://github.com/AbdelRahman-Madboly/farmlens/releases/latest/download/farmlens.apk)
+on the phone, download it, open it and allow "install from this source" when
+Android asks. If an older FarmLens is installed and Android refuses to update
+it, uninstall the old one first.
+
+**2. Set up the phone hotspot.** The Pi is set up to join one hotspot by
+default, so set the phone's hotspot settings to exactly this:
+
+| Setting | Value |
+|---|---|
+| Hotspot name (network name, SSID) | `FarmLens` (capital F and L) |
+| Password | `00000000` (eight zeros) |
+| Security | WPA2-Personal (or "WPA2/WPA3"). Not WPA3-only, most Pis cannot join it |
+| Band | 2.4 GHz (needed for Pi Zero 2 W and Pi 3; safe for every Pi) |
+
+> **Note:** this name and password are public in this README. Turn the hotspot
+> off after the demo. To use your own name and password instead, add
+> `--ssid "<name>" --password "<password>"` to the setup command in step 4.
+
+**3. Open a terminal on the Pi.** Either plug in a screen and keyboard, or
+SSH from a laptop on the same network as the Pi (`ssh <user>@<hostname>.local`,
+for example `ssh pi@raspberrypi.local`, or `ssh pi@farmlens.local` after the
+first setup). The Pi needs internet for this step: turn the hotspot on with
+mobile data, or use home Wi-Fi or Ethernet. With only a keyboard and no Wi-Fi
+yet, run `sudo nmtui` and join a network first.
+
+**4. Run the setup command on the Pi.** Copy this line, paste it into the Pi
+terminal and press Enter:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AbdelRahman-Madboly/farmlens/main/node/rpi/bootstrap.sh | bash
+```
+
+It downloads the project to `~/farmlens` (or updates it), installs everything,
+finds the camera, saves the `FarmLens` hotspot, and makes the node start on
+every boot. Nothing has to be typed except, maybe, the Pi user's password for
+`sudo`. It takes about five to ten minutes the first time and ends with
+"FarmLens node is running".
+
+The same with git, if you prefer:
+
+```bash
+git clone https://github.com/AbdelRahman-Madboly/farmlens.git ~/farmlens
+~/farmlens/node/rpi/setup.sh
+```
+
+**5. Reboot the Pi with the hotspot on:** `sudo reboot`. About a minute later
+the hotspot's "connected devices" list shows `farmlens`.
+
+**6. Open the FarmLens app.** It finds the node by itself and opens the
+dashboard. If it shows the Connect screen, tap **Find my node**. The
+**Camera** tab shows the live stream.
+
+### Every demo after that
+
+1. Turn on the phone hotspot (`FarmLens` / `00000000`).
+2. Power on the Pi and wait about a minute.
+3. Open the FarmLens app.
+
+The node starts on every boot and joins the hotspot by itself. The app finds
+it again even if its address changed.
+
+### Update the Pi
+
+Run the same command from step 4 again (or `~/farmlens/node/rpi/setup.sh`).
+It pulls the latest code, keeps the settings, and restarts the node. An older install
+(the old `install.sh`, or a copy in `~/farmlens-rpi`) is replaced and its
+`.env` and history are carried over.
+
+### If something does not work
+
+| Problem | What to do |
+|---|---|
+| The Pi does not appear in the hotspot's connected devices | Check the hotspot name is exactly `FarmLens`, the password `00000000`, the band 2.4 GHz and the security WPA2. On the Pi run `nmcli device wifi list` to see if it sees the hotspot, then `sudo nmcli connection up farmlens-hotspot`. For a different hotspot run `~/farmlens/node/rpi/setup.sh --no-apt --ssid "<name>" --password "<password>"` |
+| The app says "No node found" | Wait a minute after power on and try again. Make sure the phone running the app is the one sharing the hotspot (or on the same Wi-Fi as the Pi). As a fallback, find the Pi's address in the hotspot's connected devices list and type it in the Connect screen, port `8000` |
+| The camera shows "Simulated frames" | The camera was not found. Power off, check the ribbon cable is pushed fully into the camera port on both ends, then run `~/farmlens/node/rpi/setup.sh --no-apt` again |
+| The stream is slow | Set `STREAM_FPS=5` or `STREAM_QUALITY=50` in `~/farmlens/node/rpi/.env`, then `sudo systemctl restart farmlens` |
+| Anything else | `journalctl -u farmlens -n 50` shows the node's log. `sudo systemctl restart farmlens` restarts it |
+
+You can also open `http://farmlens.local:8000` in the phone's browser for the
+web dashboard.
 
 ## Working now vs not built yet
 
 | Area | Working now | Not built yet |
 |---|---|---|
-| Pi server (`node/rpi`) | FastAPI server, 30 s capture-infer-fuse-log cycle, SQLite history, JPEG per cycle, web dashboard, REST API used by the app | Running on a real Pi with a real camera has not been verified for this release |
+| Pi server (`node/rpi`) | FastAPI server, 30 s capture-infer-fuse-log cycle, SQLite history, JPEG per cycle, live MJPEG stream, web dashboard, REST API used by the app. `setup.sh` installs or updates it, joins a phone hotspot and starts it on boot | `setup.sh` has not yet been run on a physical Pi for this release |
 | Sensors | `mock_sensor.py` generates moving moisture and water readings in-process (`SENSOR_MODE=mock`); `POST /api/sensor` accepts readings from the ESP32 | No probes wired or calibrated |
 | Inference | Mock mode (random-walk score, default). TFLite classifier path with fallback to mock when no model or runtime is present | No trained model is shipped. The TFLite path is tested only with a dummy, untrained model generated for the tests |
-| Camera | Mock backend (synthetic, labelled frames, default); picamera2 and OpenCV backends in code | Not tested against a physical camera in this release |
+| Camera | Mock backend (synthetic, labelled frames); picamera2 and OpenCV backends. `setup.sh` picks the one it finds | Not yet tested against a physical camera |
 | Firmware (`node/firmware`) | Compiles for ESP32 (`esp32dev`); posts simulated readings over WiFi; optional analog-probe build | Not flashed or run on a board for this release |
-| App (`app`) | Connect to a node, live dashboard, alerts, cycle log with images, camera tab, fusion settings, optional API key | Not published to any store; not tested on a physical phone for this release |
+| App (`app`) | Finds the node on the phone's Wi-Fi or hotspot, live dashboard, alerts, cycle log with images, live camera stream, fusion settings, optional API key. APK on the releases page | Not in any store; not yet tested on a physical phone |
 | Security | Optional API key on write endpoints | No TLS, no user accounts. LAN-only prototype, see [SECURITY.md](SECURITY.md) |
 | Multi-node platform | - | Future work, see [docs/roadmap.md](docs/roadmap.md) |
 
-## Run the demo (no hardware)
+## Run the demo on a computer (no hardware)
 
 Needs Python 3.11+ and, for the app, Flutter 3.x.
 
@@ -53,7 +149,7 @@ Android emulator reaches the host machine at `10.0.2.2`.
 
 | Path | What it is |
 |---|---|
-| `node/rpi/` | Python/FastAPI server for the Raspberry Pi, with tests |
+| `node/rpi/` | Python/FastAPI server for the Raspberry Pi, with tests. `setup.sh` and `bootstrap.sh` install it |
 | `node/firmware/` | ESP32 firmware (PlatformIO), with host-side unit tests |
 | `app/` | Flutter companion app, with unit and widget tests |
 | `docs/ARCHITECTURE.md` | Data flow, fusion formula, API contract |
@@ -72,14 +168,27 @@ starting values for the prototype, not tuned against data.
 
 ## Tests
 
-| Part | Command | Result at v0.1.0 |
+| Part | Command | Result at v0.2.0 |
 |---|---|---|
-| Pi server | `cd node/rpi && pytest` | 55 passed |
+| Pi server | `cd node/rpi && pytest` | 59 passed |
 | Firmware logic | `cd node/firmware && pio test -e native` | 7 passed |
 | Firmware build | `cd node/firmware && pio run -e esp32dev` | builds |
-| App | `cd app && flutter analyze && flutter test` | no issues, 42 passed |
+| App | `cd app && flutter analyze && flutter test` | no issues, 62 passed |
 
 CI runs all of these on every push, see `.github/workflows/ci.yml`.
+
+## Release the app
+
+Push a version tag and GitHub builds the APK and attaches it to a release:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+`.github/workflows/release-apk.yml` runs the tests, builds
+`farmlens.apk`, and publishes it. The download link at the top of this file
+always points to the newest release. The APK is signed with a build-time debug
+key, so a phone may need the old version uninstalled before a new one installs.
 
 ## Licence
 
